@@ -57,7 +57,7 @@ const PROFILES = [
     },
 ];
 
-const HomeScreen = ({ activeTab, onLoginPress, t }) => {
+const HomeScreen = ({ activeTab, isLoggedIn, onLoginPress, t }) => {
     const navigation = useNavigation();
     const [searchViewMode, setSearchViewMode] = useState('input');
     const [displayedMatches, setDisplayedMatches] = useState(PROFILES);
@@ -226,7 +226,7 @@ const HomeScreen = ({ activeTab, onLoginPress, t }) => {
             <SearchFilter
                 onSearch={performSearch}
                 t={t}
-                isLoggedIn={false}
+                isLoggedIn={isLoggedIn}
             />
         </View>
     );
@@ -407,18 +407,6 @@ const HomeScreen = ({ activeTab, onLoginPress, t }) => {
                         </View>
                     )}
 
-                    {activeTab === 'PROFILE' && (
-                        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-                            <Icon name="lock" size={60} color={COLORS.textSub} style={{ marginBottom: 20 }} />
-                            <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#555', marginBottom: 10 }}>{t('LOGIN')}</Text>
-                            <Text style={{ fontSize: 14, color: '#777', textAlign: 'center', marginBottom: 20 }}>
-                                {t('PLEASE_LOGIN')}
-                            </Text>
-                            <TouchableOpacity style={styles.authBtnOutline} onPress={onLoginPress}>
-                                <Text style={styles.authBtnTextOutline}>{t('LOGIN_NOW')}</Text>
-                            </TouchableOpacity>
-                        </View>
-                    )}
                 </>
             )}
         </View>

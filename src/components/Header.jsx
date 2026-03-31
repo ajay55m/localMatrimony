@@ -11,14 +11,16 @@ import { getSession, KEYS } from '../utils/session';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { scale, moderateScale } from '../utils/responsive';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 
 const COLORS = {
     white: '#FFFFFF',
     sidemenuHeader: '#ad0761',
 };
 
-const Header = ({ setMenuVisible, isLoggedIn, onProfilePress, onBack, isOffline = false }) => {
+const Header = ({ setMenuVisible, isLoggedIn, onBack, isOffline = false }) => {
     const insets = useSafeAreaInsets();
+    const navigation = useNavigation();
     const [userGender, setUserGender] = useState('Male');
 
     useEffect(() => {
@@ -58,17 +60,13 @@ const Header = ({ setMenuVisible, isLoggedIn, onProfilePress, onBack, isOffline 
                 />
 
                 <View style={styles.headerRight}>
-                    {isLoggedIn && (
-                        <TouchableOpacity
-                            onPress={onProfilePress}
-                            style={styles.avatarTouch}
-                        >
-                            <Image
-                                source={userGender?.toLowerCase() === 'female' || userGender === 'பெண்' ? require('../assets/images/avatar_female.jpg') : require('../assets/images/avatar_male.jpg')}
-                                style={styles.headerAvatar}
-                            />
-                        </TouchableOpacity>
-                    )}
+                    {/* TEMP: TEST BUTTON for Server Slow Page */}
+                    <TouchableOpacity
+                        style={styles.headerMenuBtn}
+                        onPress={() => navigation.navigate('ServerSlow')}
+                    >
+                        <Icon name="alert-circle-outline" size={24} color={isOffline ? '#000000' : '#FFFFFF'} />
+                    </TouchableOpacity>
 
                     <TouchableOpacity
                         style={styles.headerMenuBtn}

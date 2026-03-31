@@ -13,9 +13,14 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import { getSession, KEYS } from '../../utils/session';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { ENDPOINTS } from '../../config/apiConfig';
+import { getHoroscope } from '../../services/profileService';
 import PageHeader from '../../components/PageHeader';
 import Skeleton from '../../components/Skeleton';
+import LoginModal from '../../components/LoginModal';
+import SidebarMenu from '../../components/SidebarMenu';
+import Footer from '../../components/Footer';
+import { TRANSLATIONS } from '../../constants/translations';
+import { clearSession } from '../../utils/session';
 
 const { width } = Dimensions.get('window');
 
@@ -159,6 +164,11 @@ export default function ViewHoroscope() {
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState(null);
     const [error, setError] = useState(null);
+    const [loginVisible, setLoginVisible] = useState(false);
+    const [menuVisible, setMenuVisible] = useState(false);
+
+    const t = (key) => TRANSLATIONS['ta'][key] || key;
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
 
     useFocusEffect(
         useCallback(() => {
@@ -171,7 +181,12 @@ export default function ViewHoroscope() {
 
                     // ── Step 1: Get logged-in user's client ID (for auth) ──
                     const user = await getSession(KEYS.USER_DATA);
-                    if (!user) throw new Error('Not logged in');
+                    if (!user) {
+                        setIsLoggedIn(false);
+                        setLoginVisible(true);
+                        throw new Error('Not logged in');
+                    }
+                    setIsLoggedIn(true);
                     const myClientId = user.tamil_client_id || user.id || user.m_id;
 
                     // ── Step 2: Get TARGET profile ID from route params ──
@@ -190,14 +205,9 @@ export default function ViewHoroscope() {
                     if (!targetId) throw new Error('Target profile ID not provided');
 
                     // ── Step 3: Fetch THAT profile's horoscope ──
-                    const fd = new FormData();
-                    fd.append('tamil_client_id', String(myClientId));  // logged-in user (auth)
-                    fd.append('profile_id', String(targetId));          // target profile (whose horoscope)
+                    const json = await getHoroscope(myClientId, targetId);
 
-                    const res = await fetch(ENDPOINTS.VIEW_HOROSCOPE, { method: 'POST', body: fd });
-                    const json = await res.json();
-
-                    if (!json.status) throw new Error(json.message || 'Error fetching horoscope');
+                    if (!json || !json.status) throw new Error(json?.message || 'Error fetching horoscope');
                     if (active) setData(json);
                 } catch (e) {
                     if (active) setError(e.message);
@@ -210,6 +220,24 @@ export default function ViewHoroscope() {
         }, [route.params])  // ✅ re-fetch when params change (different profile)
     );
 
+    const handleLogout = async () => {
+        try {
+            await clearSession();
+            setIsLoggedIn(false);
+            setMenuVisible(false);
+            navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+        } catch (e) {
+            console.error('Logout error:', e);
+        }
+    };
+
+    const handleFooterNavigation = (tab) => {
+        if (tab === 'HOME') navigation.navigate('Main', { initialTab: 'HOME' });
+        else if (tab === 'CONTACT') navigation.navigate('Contact');
+        else if (tab === 'SEARCH') navigation.navigate('Search');
+        else if (tab === 'PROFILE') navigation.navigate('Profiles');
+    };
+
     if (loading) {
         return (
             <View style={styles.screen}>
@@ -217,6 +245,7 @@ export default function ViewHoroscope() {
                     title="View Horoscope"
                     onBack={() => navigation.goBack()}
                     icon="zodiac-leo"
+                    onMenuPress={() => setMenuVisible(true)}
                 />
                 <Skeleton type="Horoscope" />
             </View>
@@ -230,6 +259,7 @@ export default function ViewHoroscope() {
                     title="View Horoscope"
                     onBack={() => navigation.goBack()}
                     icon="zodiac-leo"
+                    onMenuPress={() => setMenuVisible(true)}
                 />
                 <View style={styles.center}>
                     <Icon name="alert-circle-outline" size={52} color={C.accent} />
@@ -264,6 +294,7 @@ export default function ViewHoroscope() {
                 title="View Horoscope"
                 onBack={() => navigation.goBack()}
                 icon="zodiac-leo"
+                onMenuPress={() => setMenuVisible(true)}
             />
 
             <ScrollView
@@ -417,6 +448,37 @@ export default function ViewHoroscope() {
 
                 <View style={{ height: 36 }} />
             </ScrollView>
+
+            <View style={styles.footerWrapper}>
+                <Footer
+                    activeTab={null}
+                    setActiveTab={handleFooterNavigation}
+                    t={t}
+                />
+            </View>
+
+            <SidebarMenu
+                menuVisible={menuVisible}
+                setMenuVisible={setMenuVisible}
+                isLoggedIn={isLoggedIn}
+                onLogout={handleLogout}
+                t={t}
+                navigation={navigation}
+            />
+
+            <LoginModal
+                visible={loginVisible}
+                onClose={() => {
+                    setLoginVisible(false);
+                    navigation.goBack();
+                }}
+                onLoginSuccess={() => {
+                    setLoginVisible(false);
+                    // Trigger effect again will happen because navigation state might change or we manually trigger
+                    navigation.setParams({ refresh: Date.now() });
+                }}
+                t={t}
+            />
         </View>
     );
 }
@@ -464,4 +526,5 @@ const styles = StyleSheet.create({
     noHoroBox: { alignItems: 'center', paddingVertical: 30, gap: 12 },
     noHoroText: { fontSize: 14, color: C.muted, fontFamily: 'NotoSansTamil-Regular' },
     collapseHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    footerWrapper: { backgroundColor: '#fff' },
 });

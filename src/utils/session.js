@@ -18,7 +18,9 @@ export const setSession = async (data) => {
             KEYS.USERNAME,
         ]);
 
-        const updatedData = { ...data, no_sel_profiles: '0' };
+        // ── UPDATED: Preserve all data from login, including user_points ────────────────
+        // We no longer force no_sel_profiles to '0'.
+        const updatedData = { ...data };
 
         const sessionData = {
             [KEYS.USER_SESSION]: 'true',

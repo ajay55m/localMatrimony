@@ -22,9 +22,9 @@ import Skeleton from '../components/Skeleton';
 import { scale, moderateScale } from '../utils/responsive';
 import { decodeUTF8String, logUTF8String } from '../utils/utf8Helper';
 import { getProfile, getDashboardStats, getSelectedCount, getSelectedProfiles } from '../services/profileService';
+import { BASE_IMAGE_URL, WRONG_IMAGE_URL } from '../config/apiConfig';
 
 const { width, height } = Dimensions.get('window');
-const BASE_URL = 'https://nadarmahamai.com/adminpanel/matrimony/userphoto/';
 
 const COLORS = {
     primary: '#FF4081',
@@ -48,17 +48,14 @@ const COLORS = {
 // ─── Build a full URL from a raw filename or already-absolute URL ─────────────
 // IMPORTANT: The correct image path is adminpanel/matrimony/userphoto/ (from web PHP).
 // Old cached data may contain the wrong /uploads/ path — we rewrite it here.
-const CORRECT_IMG_BASE = 'https://nadarmahamai.com/adminpanel/matrimony/userphoto/';
-const WRONG_IMG_BASE = 'https://nadarmahamai.com/uploads/';
-
 const toFullUrl = (raw) => {
     if (!raw) return null;
     // Rewrite stale /uploads/ URLs — correct path is adminpanel/matrimony/userphoto/
-    if (raw.startsWith(WRONG_IMG_BASE)) {
-        return CORRECT_IMG_BASE + raw.slice(WRONG_IMG_BASE.length);
+    if (raw.startsWith(WRONG_IMAGE_URL)) {
+        return BASE_IMAGE_URL + raw.slice(WRONG_IMAGE_URL.length);
     }
     if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
-    return `${BASE_URL}${raw}`;
+    return `${BASE_IMAGE_URL}${raw}`;
 };
 
 // ─── Extract photos array from the API data object ───────────────────────────
@@ -393,30 +390,7 @@ const Dashboard = ({ t }) => {
         useCallback(() => {
             const loadUserData = async () => {
                 try {
-                    // ── Migrate stale /uploads/ URLs in cached userData ────────
-                    try {
-                        const rawUserData = await AsyncStorage.getItem(KEYS.USER_DATA);
-                        if (rawUserData && rawUserData.includes('/uploads/')) {
-                            const fixed = rawUserData.replace(
-                                /https:\/\/nadarmahamai\.com\/uploads\//g,
-                                'https://nadarmahamai.com/adminpanel/matrimony/userphoto/'
-                            );
-                            await AsyncStorage.setItem(KEYS.USER_DATA, fixed);
-                        }
-                    } catch (migErr) {
-                        console.warn('[Dashboard] URL migration error:', migErr);
-                    }
-                    // ── Migrate TAMIL_CLIENT_ID: ensure it's the numeric register_tamil.id ──
-                    // If stored as m_id string "HM8282" (old session), PHP lookup fails.
-                    try {
-                        const storedTid = await AsyncStorage.getItem(KEYS.TAMIL_CLIENT_ID);
-                        const rawUd = await AsyncStorage.getItem(KEYS.USER_DATA);
-                        const ud = rawUd ? JSON.parse(rawUd) : null;
-                        if (storedTid && isNaN(storedTid) && ud?.id) {
-                            await AsyncStorage.setItem(KEYS.TAMIL_CLIENT_ID, String(ud.id));
-                            console.log('[Dashboard] Migrated TAMIL_CLIENT_ID →', ud.id);
-                        }
-                    } catch (_) { }
+                    // URL and ID Migrations removed per user request: "don't store in the file"
                     _imageCache.clear();
 
                     const parsedData = await getSession(KEYS.USER_DATA);
@@ -517,7 +491,7 @@ const Dashboard = ({ t }) => {
                                     logUTF8String('Final user_name', updatedData.user_name);
                                     setUserData(updatedData);
                                     setDashboardSelectedProfiles(localSelectedProfiles);
-                                    await AsyncStorage.setItem(KEYS.USER_DATA || 'userData', JSON.stringify(updatedData));
+                                    // Intentionally not storing updatedData in AsyncStorage per user request.
                                 } else {
                                     setDashboardSelectedProfiles(localSelectedProfiles);
                                     setUserData((prev) => ({
@@ -561,6 +535,7 @@ const Dashboard = ({ t }) => {
     //        user_photo → photo_data1 → gender-based default avatar
     const isFemale =
         userData?.gender?.toLowerCase() === 'female' ||
+        userData?.gender === '\u0BAA\u0BC6\u0BA3\u0BCD' ||
         userData?.gender === 'பெண்';
 
     const getAvatarSource = () => {
@@ -781,7 +756,7 @@ const Dashboard = ({ t }) => {
                     {dashboardSelectedProfiles.slice(0, 5).map((profile, index) => {
                         let imageUrl = profile.profile_image || profile.user_photo || profile.photo_data1;
                         if (imageUrl && !imageUrl.startsWith('http')) {
-                            imageUrl = `https://nadarmahamai.com/adminpanel/matrimony/userphoto/${imageUrl}`;
+                            imageUrl = `${BASE_IMAGE_URL}${imageUrl}`;
                         }
                         return (
                             <TouchableOpacity

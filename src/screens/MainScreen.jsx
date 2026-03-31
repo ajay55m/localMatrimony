@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     View,
     StyleSheet,
@@ -14,7 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNetInfo } from '@react-native-community/netinfo';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 
 // Components
 import Header from '../components/Header';
@@ -22,6 +22,7 @@ import Footer from '../components/Footer';
 import SidebarMenu from '../components/SidebarMenu';
 import HomeScreen from './HomeScreen';
 import Dashboard from './Dashboard';
+import LoginModal from '../components/LoginModal';
 
 import { TRANSLATIONS } from '../constants/translations';
 import { loginUser } from '../services/authService';
@@ -46,26 +47,6 @@ function MainScreen({ route }) {
     const [lang, setLang] = useState('ta'); // 'en' or 'ta'
 
     // Update activeTab when route params change (e.g. navigation from other screens)
-    useEffect(() => {
-        if (route?.params?.initialTab) {
-            setActiveTab(route.params.initialTab);
-            // Clear params to avoid sticking to this tab on subsequent re-renders if intended
-            navigation.setParams({ initialTab: undefined });
-        }
-    }, [route?.params?.initialTab]);
-
-    // Translation Helper
-    const t = (key) => TRANSLATIONS[lang][key] || key;
-
-    // Login Modal State
-    const [loginVisible, setLoginVisible] = useState(false);
-    const [profileId, setProfileId] = useState('');
-    const [password, setPassword] = useState('');
-
-    useEffect(() => {
-        checkLoginStatus();
-    }, []);
-
     const checkLoginStatus = async () => {
         try {
             const loggedIn = await checkSession();
@@ -75,6 +56,32 @@ function MainScreen({ route }) {
             setIsLoggedIn(false);
         }
     };
+
+    useFocusEffect(
+        useCallback(() => {
+            if (route.params?.initialTab) {
+                if (route.params.initialTab === 'PROFILE') {
+                    navigation.navigate('Profiles');
+                    // Reset to HOME so if they come back they see Home
+                    setActiveTab('HOME');
+                } else {
+                    setActiveTab(route.params.initialTab);
+                }
+                // Clear params to avoid sticking to this tab on subsequent re-renders
+                navigation.setParams({ initialTab: undefined });
+            }
+            checkLoginStatus();
+        }, [route.params])
+    );
+
+    // Translation Helper
+    const t = (key) => TRANSLATIONS[lang][key] || key;
+
+    // Login Modal State
+    const [loginVisible, setLoginVisible] = useState(false);
+    const [profileId, setProfileId] = useState('');
+    const [password, setPassword] = useState('');
+
 
     const handleLoginSuccess = async (userData) => {
         try {
@@ -91,6 +98,7 @@ function MainScreen({ route }) {
             await clearSession();
             setIsLoggedIn(false);
             setActiveTab('HOME'); // Reset to Home on logout
+            navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
         } catch (e) {
             console.error('Failed to clear session', e);
         }
@@ -182,6 +190,7 @@ function MainScreen({ route }) {
         return (
             <HomeScreen
                 activeTab={activeTab}
+                isLoggedIn={isLoggedIn}
                 onLoginPress={() => setLoginVisible(true)}
                 t={t}
             />
@@ -189,89 +198,12 @@ function MainScreen({ route }) {
     };
 
     const renderLoginModal = () => (
-        <Modal
-            animationType="slide"
-            transparent={true}
+        <LoginModal
             visible={loginVisible}
-            onRequestClose={() => setLoginVisible(false)}
-        >
-            <View style={styles.modalOverlay}>
-                <View style={styles.loginModalContainer}>
-                    <TouchableOpacity
-                        style={styles.closeModalBtn}
-                        onPress={() => setLoginVisible(false)}
-                    >
-                        <Icon name="close" size={24} color="#ef0d8d" />
-                    </TouchableOpacity>
-
-                    <Text style={styles.modalTitle}>{t('LOGIN')}</Text>
-                    <Text style={styles.modalSubtitle}>{t('PLEASE_LOGIN')}</Text>
-
-                    <View style={styles.inputContainer}>
-                        <Text style={styles.inputLabel}>{t('PROFILE_ID') || 'Profile ID'}</Text>
-                        <View style={styles.inputWrapper}>
-                            <Icon name="account" size={20} color="#666" style={styles.inputIcon} />
-                            <TextInput
-                                style={styles.modalInput}
-                                placeholder="HN1234..."
-                                placeholderTextColor="#999"
-                                value={profileId}
-                                onChangeText={setProfileId}
-                                textContentType="username"
-                                autoComplete="username"
-                            />
-                        </View>
-                    </View>
-
-                    <View style={styles.inputContainer}>
-                        <Text style={styles.inputLabel}>{t('PASSWORD') || 'Password'}</Text>
-                        <View style={styles.inputWrapper}>
-                            <Icon name="lock" size={20} color="#666" style={styles.inputIcon} />
-                            <TextInput
-                                style={styles.modalInput}
-                                placeholder="******"
-                                placeholderTextColor="#999"
-                                secureTextEntry
-                                value={password}
-                                onChangeText={setPassword}
-                                textContentType="password"
-                                autoComplete="password"
-                            />
-                        </View>
-                    </View>
-
-                    <TouchableOpacity
-                        style={styles.fullWidthBtn}
-                        onPress={submitLogin}
-                    >
-                        <LinearGradient
-                            colors={['#ef0d8d', '#ad0761']}
-                            style={styles.btnGradient}
-                        >
-                            <Text style={styles.btnText}>{t('LOGIN')}</Text>
-                        </LinearGradient>
-                    </TouchableOpacity>
-
-                    <View style={styles.loginExtraActions}>
-                        <TouchableOpacity style={styles.forgotBtn} onPress={handleForgotPassword}>
-                            <Text style={styles.forgotText}>{t('FORGOT_PASSWORD') || 'Forgot Password?'}</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={styles.registerLinkBtn}
-                            onPress={() => {
-                                setLoginVisible(false);
-                                navigation.navigate('Register');
-                            }}
-                        >
-                            <Text style={styles.registerLinkText}>
-                                {t('NO_ACCOUNT') || "Don't have an account?"} <Text style={styles.registerLinkSpan}>{t('REGISTER')}</Text>
-                            </Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </View>
-        </Modal>
+            onClose={() => setLoginVisible(false)}
+            onLoginSuccess={handleLoginSuccess}
+            t={t}
+        />
     );
 
     if (isLoggedIn === null) {
@@ -288,7 +220,6 @@ function MainScreen({ route }) {
             <Header
                 setMenuVisible={setMenuVisible}
                 isLoggedIn={isLoggedIn}
-                onProfilePress={() => setMenuVisible(true)}  // Header Avatar now opens Sidebar (User Profile)
                 isOffline={isOffline}
             />
 
@@ -310,19 +241,23 @@ function MainScreen({ route }) {
                             return;
                         }
 
-                        // 2. Strict Login Wall for everything else
+                        // 2. Profiles is now also directly accessible (Redirection as requested)
+                        if (tab === 'PROFILE') {
+                            navigation.navigate('Profiles');
+                            return;
+                        }
+
+                        // 3. Strict Login Wall for everything else
                         if (!isLoggedIn) {
                             setLoginVisible(true);
                             return;
                         }
 
-                        // 3. Navigation for Logged-In Users
+                        // 4. Navigation for Logged-In Users
                         if (tab === 'CONTACT') {
                             navigation.navigate('Contact');
                         } else if (tab === 'SEARCH') {
                             navigation.navigate('Search');
-                        } else if (tab === 'PROFILE') {
-                            navigation.navigate('Profiles');
                         }
                     }}
                 />

@@ -190,14 +190,6 @@ const ContactScreen = ({ navigation }) => {
                 icon="phone-classic"
                 rightComponent={
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                        {isLoggedIn && (
-                            <TouchableOpacity onPress={() => navigation.navigate('Main', { initialTab: 'HOME' })}>
-                                <Image
-                                    source={userGender?.toLowerCase() === 'female' || userGender === 'பெண்' ? require('../../assets/images/avatar_female.jpg') : require('../../assets/images/avatar_male.jpg')}
-                                    style={{ width: 35, height: 35, borderRadius: 17.5, borderWidth: 1.5, borderColor: '#fff' }}
-                                />
-                            </TouchableOpacity>
-                        )}
                         <TouchableOpacity onPress={() => setMenuVisible(true)}>
                             <Icon name="menu" size={28} color="#ad0761" />
                         </TouchableOpacity>

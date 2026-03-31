@@ -1,5 +1,6 @@
 import { ENDPOINTS } from '../config/apiConfig';
 import { parseUTF8JSON } from '../utils/utf8Helper';
+import { navigate } from '../navigation/NavigationService';
 
 // ─── Bot protection cookie ────────────────────────────────────────────────────
 // nadarmahamai.com uses Imunify360 bot protection.
@@ -15,8 +16,12 @@ export const loginUser = async (profileId, password) => {
     try {
         const body = `email=${encodeURIComponent(profileId)}&password=${encodeURIComponent(password)}`;
 
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+
         const response = await fetch(ENDPOINTS.LOGIN, {
             method: 'POST',
+            signal: controller.signal,
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                 'Accept': 'application/json, text/plain, */*',
@@ -26,8 +31,12 @@ export const loginUser = async (profileId, password) => {
             },
             body,
         });
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
+            if (response.status >= 500) {
+                navigate('ServerSlow');
+            }
             throw new Error(`Network response error: ${response.status}`);
         }
 
@@ -38,6 +47,11 @@ export const loginUser = async (profileId, password) => {
         return result;
 
     } catch (error) {
+        if (error.name === 'AbortError' || error.message?.includes('Network request failed') || error.message?.includes('Failed to fetch')) {
+            navigate('ServerSlow');
+            return { status: false, message: 'Server is slow or unreachable' };
+        }
+        
         console.error('Login error:', error);
         return {
             status: false,
@@ -99,8 +113,12 @@ export const registerUser = async (formData) => {
             .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(details[key])}`)
             .join('&');
 
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+
         const response = await fetch(ENDPOINTS.REGISTER, {
             method: 'POST',
+            signal: controller.signal,
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                 'Accept': 'application/json',
@@ -108,8 +126,12 @@ export const registerUser = async (formData) => {
             },
             body: formBody,
         });
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
+            if (response.status >= 500) {
+                navigate('ServerSlow');
+            }
             const errorText = await response.text();
             console.error('Registration API Error:', errorText);
             throw new Error('Registration failed');
@@ -119,6 +141,11 @@ export const registerUser = async (formData) => {
         return parseUTF8JSON(responseText);
 
     } catch (error) {
+        if (error.name === 'AbortError' || error.message?.includes('Network request failed') || error.message?.includes('Failed to fetch')) {
+            navigate('ServerSlow');
+            return { status: false, message: 'Server is slow or unreachable' };
+        }
+
         console.error('Registration error:', error);
         return {
             status: false,

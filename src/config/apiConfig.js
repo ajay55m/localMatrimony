@@ -1,9 +1,6 @@
-/**
- * API Configuration
- * Centralized place for all API related constants
- */
-
 export const BASE_URL = 'https://nadarmahamai.com/api';
+export const BASE_IMAGE_URL = 'https://nadarmahamai.com/adminpanel/matrimony/userphoto/';
+export const WRONG_IMAGE_URL = 'https://nadarmahamai.com/uploads/';
 
 export const ENDPOINTS = {
     LOGIN: `${BASE_URL}/login.php`,
@@ -20,5 +17,7 @@ export const ENDPOINTS = {
 
 export default {
     BASE_URL,
+    BASE_IMAGE_URL,
+    WRONG_IMAGE_URL,
     ENDPOINTS,
 };

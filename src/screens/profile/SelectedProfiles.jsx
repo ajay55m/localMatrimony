@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
     View, Text, StyleSheet, FlatList, Image, TouchableOpacity,
     Platform, StatusBar, ActivityIndicator, Alert,
@@ -9,11 +9,21 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { scale, moderateScale } from '../../utils/responsive';
 import PageHeader from '../../components/PageHeader';
+import Skeleton from '../../components/Skeleton';
 import EmptyState from '../../components/EmptyState';
-import { KEYS, getSession, isLoggedIn as checkLoggedIn } from '../../utils/session';
-import Footer from '../../components/Footer';
+import { KEYS, getSession, clearSession } from '../../utils/session';
+import { getSelectedProfiles } from '../../services/profileService';
 import SidebarMenu from '../../components/SidebarMenu';
-import { getSelectedProfiles, submitSelectedProfile } from '../../services/profileService';
+import Footer from '../../components/Footer';
+import { TRANSLATIONS } from '../../constants/translations';
+import { BASE_IMAGE_URL } from '../../config/apiConfig';
+ 
+const TAMIL_FEMALE = '\u0BAA\u0BC6\u0BA3\u0BCD';
+const isFemaleGender = (g) => {
+    if (!g) return false;
+    const s = String(g).toLowerCase().trim();
+    return s === 'female' || s === TAMIL_FEMALE || s === 'பெண்' || s === 'girl';
+};
 
 const SelectedProfiles = () => {
     const navigation = useNavigation();
@@ -23,17 +33,17 @@ const SelectedProfiles = () => {
     const [profiles, setProfiles] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [userGender, setUserGender] = useState('Male');
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [menuVisible, setMenuVisible] = useState(false);
-    const [activeTab, setActiveTab] = useState('PROFILE');
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-    useEffect(() => {
-        const initLogin = async () => {
-            const logged = await checkLoggedIn();
-            setIsLoggedIn(logged);
-        };
-        initLogin();
-    }, []);
+    const handleFooterNavigation = (tab) => {
+        if (tab === 'HOME') navigation.navigate('Main', { initialTab: 'HOME' });
+        else if (tab === 'CONTACT') navigation.navigate('Contact');
+        else if (tab === 'SEARCH') navigation.navigate('Search');
+        else if (tab === 'PROFILE') navigation.navigate('Profiles');
+    };
+
+    const t = (key) => TRANSLATIONS['ta'][key] || key;
 
     // ── Load from backend API ─────────────────────────────────────────────
     const loadFromBackend = useCallback(async () => {
@@ -41,6 +51,7 @@ const SelectedProfiles = () => {
             setIsLoading(true);
 
             const userData = await getSession(KEYS.USER_DATA);
+            setIsLoggedIn(!!userData);
             if (userData?.gender) setUserGender(userData.gender);
 
             let storedClientId = await AsyncStorage.getItem(KEYS.TAMIL_CLIENT_ID);
@@ -62,8 +73,28 @@ const SelectedProfiles = () => {
             // Fetch selected profiles from backend
             const result = await getSelectedProfiles(String(tamilId));
 
-            if (result?.status && Array.isArray(result.data) && result.data.length > 0) {
-                setProfiles(result.data);
+            if (result?.status && Array.isArray(result.data)) {
+                // Same logic as ViewedProfiles: filter for viewed ones
+                const viewedOnly = result.data.filter(p => 
+                    p.viewed === true || p.viewed === 'true' || p.viewed === '1' || p.viewed === 1
+                );
+
+                const sanitized = viewedOnly.map((p, idx) => {
+                    const tid = p?.tamil_profile_id ?? p?.id ?? idx;
+                    const pid = p?.profile_id ?? '';
+                    return {
+                        ...p,
+                        tamil_profile_id: tid,
+                        profile_id: typeof pid === 'string' ? pid : String(pid ?? ''),
+                        id: tid,
+                        name: p?.name || p?.user_name || 'Unknown',
+                        is_selected: true,
+                        viewed: true,
+                        education: Array.isArray(p?.education) ? p.education : [p?.education].filter(Boolean),
+                    };
+                });
+
+                setProfiles(sanitized);
             } else {
                 setProfiles([]);
             }
@@ -76,77 +107,11 @@ const SelectedProfiles = () => {
 
     useFocusEffect(useCallback(() => { loadFromBackend(); }, [loadFromBackend]));
 
-    // ── Remove: calls the new backend endpoint to remove selection ─────────
-    const handleRemove = async (item) => {
-        const displayName = item.name || item.user_name || 'this profile';
-        Alert.alert(
-            'Remove Selection',
-            `Remove "${displayName}" from your selected list?`,
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Remove',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            const targetId = String(
-                                item.profile_id || item.tamil_profile_id || item.id || ''
-                            );
-                            
-                            const udJson = await AsyncStorage.getItem(KEYS.USER_DATA);
-                            const storedClientId = await AsyncStorage.getItem(KEYS.TAMIL_CLIENT_ID);
-                            const userData = udJson ? JSON.parse(udJson) : null;
 
-                            const myId = storedClientId || userData?.tamil_client_id || userData?.id || userData?.client_id || null;
-
-                            if (!myId) return;
-
-                            // Call new backend API
-                            const result = await submitSelectedProfile(myId, targetId, 'remove_profile');
-                            
-                            if (result && result.status !== false) {
-                                // Remove from UI list
-                                setProfiles((prev) =>
-                                    prev.filter((p) =>
-                                        String(p.profile_id || p.tamil_profile_id || p.id || '') !== targetId
-                                    )
-                                );
-                            } else {
-                                Alert.alert('Error', result.message || 'Could not remove profile from backend.');
-                                // Optimistically remove it anyway for smoother UX if needed
-                                setProfiles((prev) =>
-                                    prev.filter((p) =>
-                                        String(p.profile_id || p.tamil_profile_id || p.id || '') !== targetId
-                                    )
-                                );
-                            }
-                        } catch (e) {
-                            console.error('[SelectedProfiles] remove error:', e);
-                        }
-                    },
-                },
-            ]
-        );
-    };
-
-    const handleFooterNavigation = (tab) => {
-        setActiveTab(tab);
-
-        if (tab === 'HOME') {
-            navigation.navigate('Main', { initialTab: 'HOME' });
-        } else if (tab === 'CONTACT') {
-            navigation.navigate('Contact');
-        } else if (tab === 'SEARCH') {
-            navigation.navigate('Search');
-        } else if (tab === 'PROFILE') {
-            navigation.navigate('Profiles');
-        }
-    };
 
     const resolveAvatar = (item) => {
-        const isFemale = item.gender?.toLowerCase() === 'female' || item.gender === 'பெண்';
-        const isUserFemale = userGender?.toLowerCase() === 'female' || userGender === 'பெண்';
-        return isFemale || (!item.gender && !isUserFemale)
+        const isFemale = isFemaleGender(item.gender);
+        return isFemale
             ? require('../../assets/images/avatar_female.jpg')
             : require('../../assets/images/avatar_male.jpg');
     };
@@ -164,7 +129,7 @@ const SelectedProfiles = () => {
 
         let imageUrl = item.profile_image || null;
         if (imageUrl && !imageUrl.startsWith('http')) {
-            imageUrl = `https://nadarmahamai.com/adminpanel/matrimony/userphoto/${imageUrl}`;
+            imageUrl = `${BASE_IMAGE_URL}${imageUrl}`;
         }
 
         // Use viewed_at or created_at from backend
@@ -233,13 +198,7 @@ const SelectedProfiles = () => {
                                         <Icon name="eye-outline" size={scale(14)} color="#ef0d8d" />
                                         <Text style={styles.viewBtnText}>View Details</Text>
                                     </TouchableOpacity>
-                                    <TouchableOpacity
-                                        style={styles.removeBtn}
-                                        onPress={() => handleRemove(item)}
-                                        activeOpacity={0.8}
-                                    >
-                                        <Icon name="heart-remove-outline" size={scale(14)} color="#999" />
-                                    </TouchableOpacity>
+
                                 </View>
                             </View>
                         </View>
@@ -249,24 +208,20 @@ const SelectedProfiles = () => {
         );
     };
 
+    const profileCountTotal = parseInt(profiles.length || 0, 10);
+
     return (
         <View style={styles.container}>
             <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
             <PageHeader
-                title={`Selected Profiles (${profiles.length})`}
+                title={`Selected Profiles (${profileCountTotal})`}
                 onBack={() => navigation.goBack()}
                 icon="heart"
                 isOffline={isOffline}
-                rightComponent={
-                    <TouchableOpacity onPress={() => setMenuVisible(true)} style={{ padding: 6 }}>
-                        <Icon name="menu" size={26} color="#ad0761" />
-                    </TouchableOpacity>
-                }
+                onMenuPress={() => setMenuVisible(true)}
             />
             {isLoading ? (
-                <View style={styles.center}>
-                    <ActivityIndicator size="large" color="#ef0d8d" />
-                </View>
+                <Skeleton type="List" />
             ) : profiles.length === 0 ? (
                 <EmptyState
                     icon="heart-outline"
@@ -286,25 +241,27 @@ const SelectedProfiles = () => {
                     refreshing={isLoading}
                 />
             )}
-
-            <View style={{ backgroundColor: '#FFF7ED' }}>
+            <View style={styles.footerWrapper}>
                 <Footer
-                    activeTab={activeTab}
+                    activeTab={null}
                     setActiveTab={handleFooterNavigation}
+                    t={t}
                     isOffline={isOffline}
                 />
             </View>
-
             <SidebarMenu
                 menuVisible={menuVisible}
                 setMenuVisible={setMenuVisible}
                 isLoggedIn={isLoggedIn}
-                onLogout={() => {
-                    navigation.reset({ index: 0, routes: [{ name: 'Main', params: { initialTab: 'HOME' } }] });
+                onLogout={async () => {
+                    await clearSession();
+                    setIsLoggedIn(false);
+                    setMenuVisible(false);
+                    navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
                 }}
-                t={(key) => key}
+                t={t}
+                navigation={navigation}
             />
-
         </View>
     );
 };
@@ -346,7 +303,9 @@ const styles = StyleSheet.create({
     actionRow: { flexDirection: 'row', alignItems: 'center', gap: scale(8) },
     viewBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: scale(5), backgroundColor: '#FFF0FA', borderWidth: scale(1.5), borderColor: '#ef0d8d', borderRadius: scale(10), paddingVertical: scale(8) },
     viewBtnText: { fontSize: moderateScale(12), color: '#ef0d8d', fontWeight: '700' },
-    removeBtn: { width: scale(36), height: scale(36), borderRadius: scale(10), backgroundColor: '#F5F5F5', justifyContent: 'center', alignItems: 'center' },
+    footerWrapper: {
+        backgroundColor: '#FFF',
+    },
 });
 
 export default SelectedProfiles;

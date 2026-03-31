@@ -1,5 +1,6 @@
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
+import { navigationRef } from './NavigationService';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 // Screens
@@ -12,12 +13,13 @@ import RegistrationScreen from '../screens/auth/RegisterScreen';
 import ViewedProfiles from '../screens/profile/ViewedProfiles';
 import SelectedProfiles from '../screens/profile/SelectedProfiles';
 import ViewHoroscope from '../screens/profile/ViewHoroscope';
+import ServerSlow from '../screens/ServerSlow';
 
 const Stack = createNativeStackNavigator();
 
 const AppNavigator = () => {
     return (
-        <NavigationContainer>
+        <NavigationContainer ref={navigationRef}>
             <Stack.Navigator screenOptions={{ headerShown: false, animation: 'none' }}>
                 <Stack.Screen name="Main" component={MainScreen} />
                 <Stack.Screen name="Profiles" component={ProfileScreen} />
@@ -28,6 +30,7 @@ const AppNavigator = () => {
                 <Stack.Screen name="ViewedProfiles" component={ViewedProfiles} />
                 <Stack.Screen name="SelectedProfiles" component={SelectedProfiles} />
                 <Stack.Screen name="ViewHoroscope" component={ViewHoroscope} />
+                <Stack.Screen name="ServerSlow" component={ServerSlow} />
             </Stack.Navigator>
         </NavigationContainer>
     );

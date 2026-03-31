@@ -21,6 +21,7 @@ import PageHeader from '../../components/PageHeader';
 import { MARITAL_STATUSES } from '../../constants/maritalStatuses';
 import { DIRECTIONS } from '../../constants/directions';
 import { launchImageLibrary } from 'react-native-image-picker';
+import { ENDPOINTS } from '../../config/apiConfig';
 
 const { width, height } = Dimensions.get('window');
 
@@ -31,7 +32,7 @@ const INPUT_HEIGHT = isSmall ? 50 : 56;
 const FONT_LABEL = isSmall ? 11 : 13;
 const FONT_INPUT = isSmall ? 14 : 16;
 
-const API_BASE = 'https://nadarmahamai.com/api/register.php';
+const API_BASE = ENDPOINTS.REGISTER;
 
 // 500 KB limit — must match PHP $IMAGE_LIMIT_BYTES = 512000
 // All images saved to: /adminpanel/matrimony/userphoto/

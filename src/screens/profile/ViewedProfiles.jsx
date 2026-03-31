@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
     View, Text, StyleSheet, FlatList, Image, TouchableOpacity,
     Platform, StatusBar, ActivityIndicator, Alert,
@@ -11,13 +11,23 @@ import LinearGradient from 'react-native-linear-gradient';
 import { scale, moderateScale } from '../../utils/responsive';
 import { decodeUTF8String } from '../../utils/utf8Helper';
 import PageHeader from '../../components/PageHeader';
-import EmptyState from '../../components/EmptyState';
 import Footer from '../../components/Footer';
+import EmptyState from '../../components/EmptyState';
+import { KEYS } from '../../utils/session';
+import { getSelectedProfiles, submitSelectedProfile } from '../../services/profileService';
 import SidebarMenu from '../../components/SidebarMenu';
-import { KEYS, isLoggedIn as checkLoggedIn } from '../../utils/session';
-import { getSelectedProfiles } from '../../services/profileService';
+import Skeleton from '../../components/Skeleton';
+import { TRANSLATIONS } from '../../constants/translations';
+import { clearSession } from '../../utils/session';
+import { BASE_IMAGE_URL } from '../../config/apiConfig';
 
-const BASE_IMG = 'https://nadarmahamai.com/adminpanel/matrimony/userphoto/';
+const BASE_IMG = BASE_IMAGE_URL;
+const TAMIL_FEMALE = '\u0BAA\u0BC6\u0BA3\u0BCD';
+const isFemaleGender = (g) => {
+    if (!g) return false;
+    const s = String(g).toLowerCase().trim();
+    return s === 'female' || s === TAMIL_FEMALE || s === 'பெண்' || s === 'girl';
+};
 
 const resolveImageUrl = (item) => {
     try {
@@ -61,17 +71,17 @@ const ViewedProfiles = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [userGender, setUserGender] = useState('Male');
     const [viewedCount, setViewedCount] = useState(null);
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [menuVisible, setMenuVisible] = useState(false);
-    const [activeTab, setActiveTab] = useState('SEARCH');
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-    useEffect(() => {
-        const initLogin = async () => {
-            const logged = await checkLoggedIn();
-            setIsLoggedIn(logged);
-        };
-        initLogin();
-    }, []);
+    const handleFooterNavigation = (tab) => {
+        if (tab === 'HOME') navigation.navigate('Main', { initialTab: 'HOME' });
+        else if (tab === 'CONTACT') navigation.navigate('Contact');
+        else if (tab === 'SEARCH') navigation.navigate('Search');
+        else if (tab === 'PROFILE') navigation.navigate('Profiles');
+    };
+
+    const t = (key) => TRANSLATIONS['ta'][key] || key;
 
     useFocusEffect(useCallback(() => {
         loadProfiles();
@@ -89,6 +99,7 @@ const ViewedProfiles = () => {
             } catch (_) { userData = null; }
 
             if (userData?.gender) setUserGender(userData.gender);
+            setIsLoggedIn(!!userData);
 
             // ── Resolve numeric user ID safely ────────────────────────────
             let storedClientId = await safeGet(KEYS.TAMIL_CLIENT_ID);
@@ -116,52 +127,38 @@ const ViewedProfiles = () => {
 
             console.log('[ViewedProfiles] tamilId:', tamilId);
 
-            // ── API call ──────────────────────────────────────────────────
+            // ── API call — use 'get_selected_profiles' as requested ─────────
             const result = await getSelectedProfiles(tamilId);
 
-            console.log('[ViewedProfiles] viewed_count:', result?.viewed_count,
-                '| data.length:', result?.data?.length);
+            console.log('[ViewedProfiles] API response:', result);
 
             if (result?.status && Array.isArray(result.data)) {
-                setViewedCount(
-                    typeof result.viewed_count === 'number'
-                        ? result.viewed_count
-                        : result.data.length
+                // Filter: only show profiles that have been viewed
+                const viewedOnly = result.data.filter(p => 
+                    p.viewed === true || p.viewed === 'true' || p.viewed === '1' || p.viewed === 1
                 );
 
-                // ── Sanitize all items before storing in state ────────────
-                // Every field explicitly coerced to its safe type.
-                // Prevents any null leaking into FlatList / AsyncStorage.
-                const sanitized = result.data.map((p, idx) => {
+                const sanitized = viewedOnly.map((p, idx) => {
                     const tid = p?.tamil_profile_id ?? p?.id ?? idx;
                     const pid = p?.profile_id ?? '';
                     return {
-                        // IDs
+                        ...p,
                         tamil_profile_id: tid,
                         profile_id: typeof pid === 'string' ? pid : String(pid ?? ''),
-                        eng_client_id: safeStr(p?.eng_client_id, ''),
                         id: tid,
-                        // Strings
-                        name: safeStr(p?.name, ''),
-                        age: safeStr(p?.age, ''),
-                        height: safeStr(p?.height, ''),
-                        religion: safeStr(p?.religion, ''),
-                        occupation: safeStr(p?.occupation, ''),
-                        location: safeStr(p?.location, ''),
-                        gender: safeStr(p?.gender, ''),
-                        viewed_at: safeStr(p?.viewed_at, ''),
-                        // Booleans
-                        photo_requested: p?.photo_requested === true,
-                        is_selected: p?.is_selected !== false,
-                        // Array
-                        education: Array.isArray(p?.education) ? p.education : [],
-                        // Nullable — resolveImageUrl handles null safely
-                        profile_image: p?.profile_image || null,
-                        user_photo: p?.user_photo || null,
-                        photo_data1: p?.photo_data1 || null,
+                        name: safeStr(p?.name || p?.user_name, ''),
+                        is_selected: true, // They are in 'get_selected_profiles'
+                        viewed: true,
+                        education: Array.isArray(p?.education) ? p.education : [p?.education].filter(Boolean),
                     };
                 });
 
+                // Use the API's reported viewed_count
+                const finalCount = result.viewed_count !== undefined 
+                    ? Number(result.viewed_count) 
+                    : sanitized.length;
+
+                setViewedCount(finalCount);
                 setProfiles(sanitized);
             } else {
                 setViewedCount(0);
@@ -211,17 +208,29 @@ const ViewedProfiles = () => {
         }
     };
 
-    const handleFooterNavigation = (tab) => {
-        setActiveTab(tab);
+    const handleSelectProfile = async (item) => {
+        try {
+            const storedClientId = await safeGet(KEYS.TAMIL_CLIENT_ID);
+            if (!storedClientId) {
+                Alert.alert('Error', 'User ID not found. Please login again.');
+                return;
+            }
 
-        if (tab === 'HOME') {
-            navigation.navigate('Main', { initialTab: 'HOME' });
-        } else if (tab === 'CONTACT') {
-            navigation.navigate('Contact');
-        } else if (tab === 'SEARCH') {
-            navigation.navigate('Search');
-        } else if (tab === 'PROFILE') {
-            navigation.navigate('Profiles');
+            const res = await submitSelectedProfile(storedClientId, item.tamil_profile_id);
+            if (res?.status || res?.message === 'Profile already selected') {
+                if (!item.is_selected) {
+                    Alert.alert('Success', 'Profile shortlisted successfully!');
+                }
+                // Optimistically update the local state
+                setProfiles(prev => prev.map(p =>
+                    p.id === item.id ? { ...p, is_selected: true } : p
+                ));
+            } else {
+                Alert.alert('Notice', res?.message || 'Could not shortlist profile.');
+            }
+        } catch (err) {
+            console.error('[ViewedProfiles] handleSelectProfile error:', err);
+            Alert.alert('Error', 'Something went wrong. Please try again.');
         }
     };
 
@@ -236,7 +245,7 @@ const ViewedProfiles = () => {
         const location = safeStr(item.location);
         const date = formatDate(item.viewed_at);
         const imageUrl = resolveImageUrl(item);
-        const isFemale = item.gender?.toLowerCase() === 'female';
+        const isFemale = isFemaleGender(item.gender);
         const defaultAvatar = isFemale
             ? require('../../assets/images/avatar_female.jpg')
             : require('../../assets/images/avatar_male.jpg');
@@ -285,11 +294,24 @@ const ViewedProfiles = () => {
                             <View style={styles.info}>
                                 <View style={styles.nameRow}>
                                     <Text style={styles.name} numberOfLines={1}>{name}</Text>
-                                    {item.age !== '' && (
-                                        <View style={styles.agePill}>
-                                            <Text style={styles.ageText}>{age}y</Text>
-                                        </View>
-                                    )}
+                                    <View style={styles.nameRowBadges}>
+                                        {item.age !== '' && (
+                                            <View style={styles.agePill}>
+                                                <Text style={styles.ageText}>{age}y</Text>
+                                            </View>
+                                        )}
+                                        <TouchableOpacity
+                                            activeOpacity={0.7}
+                                            onPress={() => handleSelectProfile(item)}
+                                            style={styles.heartBtn}
+                                        >
+                                            <Icon
+                                                name={item.is_selected ? 'heart' : 'heart-outline'}
+                                                size={scale(18)}
+                                                color={item.is_selected ? '#ef0d8d' : '#9CA3AF'}
+                                            />
+                                        </TouchableOpacity>
+                                    </View>
                                 </View>
 
                                 <View style={styles.detailsGrid}>
@@ -358,11 +380,7 @@ const ViewedProfiles = () => {
                 onBack={() => navigation.goBack()}
                 icon="eye"
                 isOffline={isOffline}
-                rightComponent={
-                    <TouchableOpacity onPress={() => setMenuVisible(true)} style={{ padding: 6 }}>
-                        <Icon name="menu" size={26} color="#ad0761" />
-                    </TouchableOpacity>
-                }
+                onMenuPress={() => setMenuVisible(true)}
             />
 
             {viewedCount != null && (
@@ -377,9 +395,7 @@ const ViewedProfiles = () => {
             )}
 
             {isLoading ? (
-                <View style={styles.loader}>
-                    <ActivityIndicator size="large" color="#ef0d8d" />
-                </View>
+                <Skeleton type="List" />
             ) : profiles.length === 0 ? (
                 <EmptyState
                     icon="eye-off-outline"
@@ -391,8 +407,6 @@ const ViewedProfiles = () => {
                     data={profiles}
                     renderItem={renderCard}
                     keyExtractor={(item, index) =>
-                        // Always a non-null string — tamil_profile_id is number
-                        // after sanitization, profile_id is string, index is fallback
                         `vp-${String(item.tamil_profile_id)}-${index}`
                     }
                     contentContainerStyle={styles.list}
@@ -401,27 +415,27 @@ const ViewedProfiles = () => {
                     refreshing={isLoading}
                 />
             )}
-
-            <View style={{ backgroundColor: '#FFF7ED' }}>
+            <View style={styles.footerWrapper}>
                 <Footer
-                    activeTab={activeTab}
+                    activeTab={null}
                     setActiveTab={handleFooterNavigation}
+                    t={t}
                     isOffline={isOffline}
                 />
             </View>
-
             <SidebarMenu
                 menuVisible={menuVisible}
                 setMenuVisible={setMenuVisible}
                 isLoggedIn={isLoggedIn}
-                onLogout={() => {
-                    // default logout: clear session and return to main screen
-                    // no direct clearSession here to avoid breaking user logic
-                    navigation.reset({ index: 0, routes: [{ name: 'Main', params: { initialTab: 'HOME' } }] });
+                onLogout={async () => {
+                    await clearSession();
+                    setIsLoggedIn(false);
+                    setMenuVisible(false);
+                    navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
                 }}
-                t={(key) => key}
+                t={t}
+                navigation={navigation}
             />
-
         </View>
     );
 };
@@ -499,7 +513,12 @@ const styles = StyleSheet.create({
     info: { flex: 1 },
     nameRow: {
         flexDirection: 'row', alignItems: 'center',
-        gap: scale(6), marginBottom: scale(6),
+        justifyContent: 'space-between',
+        marginBottom: scale(6),
+    },
+    nameRowBadges: {
+        flexDirection: 'row', alignItems: 'center',
+        gap: scale(6),
     },
     name: {
         fontSize: moderateScale(15), fontWeight: '800',
@@ -511,6 +530,9 @@ const styles = StyleSheet.create({
         paddingVertical: scale(2), borderRadius: scale(4),
     },
     ageText: { fontSize: moderateScale(11), fontWeight: '700', color: '#C2185B' },
+    heartBtn: {
+        padding: scale(2),
+    },
 
     detailsGrid: {
         flexDirection: 'row', gap: scale(6),
@@ -538,6 +560,9 @@ const styles = StyleSheet.create({
         borderRadius: scale(8), backgroundColor: '#ad0761',
     },
     btnFillText: { fontSize: moderateScale(11), color: '#FFF', fontWeight: '700' },
+    footerWrapper: {
+        backgroundColor: '#FFF',
+    },
 });
 
 export default ViewedProfiles;

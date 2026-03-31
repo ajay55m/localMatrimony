@@ -5,7 +5,7 @@ export const TRANSLATIONS = {
         SEARCH: 'Search',
         MATCHES: 'Matches',
         CONTACT: 'Contact',
-        PROFILE: 'Profile',
+        PROFILE: 'Profiles',
 
         // Header/Sidebar
         WELCOME: 'Welcome',
@@ -140,6 +140,23 @@ export const TRANSLATIONS = {
         OTHER_PROFILES: 'Other Profiles:',
         VERIFY_EMAIL: 'Verify your email to upgrade to Premium Membership to share messages and contact others.',
 
+        // Profile Lists
+        SELECTED_PROFILES: 'Selected Profiles',
+        VIEWED_PROFILES: 'Viewed Profiles',
+        PROFILE_DETAILS: 'Profile Details',
+        HOROSCOPE: 'Horoscope',
+        SELECT_PROFILE_BTN: 'Select Profile',
+        PROFILE_SELECTED: 'Profile Selected',
+        VIEW_FULL_DETAILS: 'View Full Profile Details',
+        SELECTED_BADGE: 'Selected',
+        COMPLETE: 'Complete',
+        POLL: 'Poll', // For completeness check
+        SELECT_TO_UNLOCK: 'Select profile to view',
+        SELECT_TO_UNLOCK_BANNER: 'Select this profile to unlock photo, phone & place',
+        CHECKING_STATUS: 'Verifying selection status...',
+        SELECTING: 'Selecting...',
+        UNLOCKED: 'unlocked',
+
         // Contact
         CONTACT_US: 'Contact Us',
         CALL_US: 'Call us for any assistance:',
@@ -156,7 +173,7 @@ export const TRANSLATIONS = {
         FIND: 'Find',
         LOGIN_SUCCESS: 'Successfully Logged In!',
         LOGIN_FAIL: 'Invalid username or password. Please try again.',
-        PLEASE_LOGIN: 'Please login to view your profile.',
+        PLEASE_LOGIN: 'Please login to view full profile details and photos.',
         FILL_ALL_FIELDS: 'Please fill in all fields',
         SOMETHING_WENT_WRONG: 'Something went wrong. Please try again later.',
         FORGOT_PASSWORD: 'Forgot Password?',
@@ -166,6 +183,8 @@ export const TRANSLATIONS = {
         OK: 'OK',
         PASSWORD: 'Password',
         PROFILE_ID: 'Profile ID',
+        LOGIN_REQUIRED: 'Login Required',
+        LOGIN_REQUIRED_MSG: 'Please login to view full profile details and photos.',
 
         LOCKED_MSG: 'Must View',
         SHARE_WHATSAPP: 'Share on WhatsApp',
@@ -188,9 +207,9 @@ export const TRANSLATIONS = {
         // Footer & Nav
         HOME: 'முகப்பு',
         SEARCH: 'தேடல்',
-        MATCHES: 'பொருத்தம்',
+        MATCHES: 'வரன்கள்',
         CONTACT: 'தொடர்பு',
-        PROFILE: 'சுயவிவரம்',
+        PROFILE: 'வரன்கள்',
 
         // Header/Sidebar
         WELCOME: 'வரவேற்கிறோம்',
@@ -248,6 +267,22 @@ export const TRANSLATIONS = {
         NATIVE_DIRECTION: 'பூர்வீக திசை',
         QUALIFICATION: 'கல்வித் தகுதி',
         WORK: 'வேலை',
+
+        // Profile Lists & Actions
+        SELECTED_PROFILES: 'தேர்வு செய்த வரன்கள்',
+        VIEWED_PROFILES: 'பார்த்த வரன்கள்',
+        PROFILE_DETAILS: 'வரன் விவரங்கள்',
+        HOROSCOPE: 'ஜாதகம்',
+        SELECT_PROFILE_BTN: 'வரனைத் தேர்வு செய்க',
+        PROFILE_SELECTED: 'வரன் தேர்வு செய்யப்பட்டது',
+        VIEW_FULL_DETAILS: 'முழு வரன் விவரங்களைக் காண்க',
+        SELECTED_BADGE: 'தேர்வு செய்யப்பட்டது',
+        COMPLETE: 'பூர்த்தி',
+        SELECT_TO_UNLOCK: 'பார்க்க வரனைத் தேர்வு செய்க',
+        SELECT_TO_UNLOCK_BANNER: 'புகைப்படம், தொலைபேசி மற்றும் இடத்தைப் பார்க்க இந்த வரனைத் தேர்வு செய்க',
+        CHECKING_STATUS: 'நிலை சரிபார்க்கப்படுகிறது...',
+        SELECTING: 'தேர்வு செய்யப்படுகிறது...',
+        UNLOCKED: 'திறக்கப்பட்டது',
         RAASI: 'ராசி',
         STAR: 'நட்சத்திரம்',
         COLOR: 'நிறம்',
@@ -342,7 +377,7 @@ export const TRANSLATIONS = {
         FIND: 'தேடுக',
         LOGIN_SUCCESS: 'வெற்றிகரமாக உள்நுழைந்துள்ளீர்கள்!',
         LOGIN_FAIL: 'தவறான பயனர்பெயர் அல்லது கடவுச்சொல். தயவுசெய்து மீண்டும் முயற்சிக்கவும்.',
-        PLEASE_LOGIN: 'உங்கள் சுயவிவரத்தைப் பார்க்க தயவுசெய்து உள்நுழையவும்.',
+        PLEASE_LOGIN: 'முழு விவரங்களையும் புகைப்படங்களையும் பார்க்க தயவுசெய்து உள்நுழையவும்.',
         FILL_ALL_FIELDS: 'அனைத்து இடங்களையும் நிரப்பவும்',
         SOMETHING_WENT_WRONG: 'ஏதோ தவறு நடந்துவிட்டது. தயவுசெய்து பிறகு முயற்சிக்கவும்.',
         FORGOT_PASSWORD: 'கடவுச்சொல்லை மறந்துவிட்டீர்களா?',
@@ -352,6 +387,8 @@ export const TRANSLATIONS = {
         OK: 'சரி',
         PASSWORD: 'கடவுச்சொல்',
         PROFILE_ID: 'சுயவிவர ஐடி',
+        LOGIN_REQUIRED: 'உள்நுழைவு அவசியம்',
+        LOGIN_REQUIRED_MSG: 'முழு விவரங்களையும் புகைப்படங்களையும் பார்க்க தயவுசெய்து உள்நுழையவும்.',
 
         LOCKED_MSG: 'காண வேண்டும்',
         SHARE_WHATSAPP: 'WhatsApp-ல் பகிர',

@@ -16,6 +16,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { scale, moderateScale, width, height } from '../utils/responsive';
 import { useNavigation } from '@react-navigation/native';
+import { calculateCompleteness } from '../utils/profileUtils';
 
 // width/height imported from responsive utils
 
@@ -83,7 +84,13 @@ const SidebarMenu = ({ menuVisible, setMenuVisible, isLoggedIn, onLogout, t }) =
                         <ScrollView showsVerticalScrollIndicator={false}>
                             <View style={{ marginTop: 10 }}>
                                 {isLoggedIn && (
-                                    <View style={styles.profileSummary}>
+                                    <TouchableOpacity 
+                                        style={styles.profileSummary}
+                                        onPress={() => {
+                                            setMenuVisible(false);
+                                            navigation.navigate('Main', { initialTab: 'HOME' });
+                                        }}
+                                    >
                                         <Image
                                             source={userData?.gender?.toLowerCase() === 'female' || userData?.gender === 'பெண்' ? require('../assets/images/avatar_female.jpg') : require('../assets/images/avatar_male.jpg')}
                                             style={styles.profileAvatar}
@@ -91,17 +98,24 @@ const SidebarMenu = ({ menuVisible, setMenuVisible, isLoggedIn, onLogout, t }) =
                                         <View>
                                             <Text style={styles.profileName}>{userData?.username || 'User'}</Text>
                                             <View style={styles.percentageContainer}>
-                                                <Text style={styles.percentageText}>{t('PROFILE')} {userData?.profile_completeness || '0'}% Complete</Text>
+                                                <Text style={styles.percentageText}>
+                                                    {t('PROFILE')} {calculateCompleteness(userData)}% {t('COMPLETE') || 'Complete'}
+                                                </Text>
                                                 <View style={styles.percentageBar}>
-                                                    <View style={[styles.percentageFill, { width: `${userData?.profile_completeness || 0}%` }]} />
+                                                    <View 
+                                                        style={[
+                                                            styles.percentageFill, 
+                                                            { width: `${calculateCompleteness(userData)}%` }
+                                                        ]} 
+                                                    />
                                                 </View>
                                             </View>
                                         </View>
-                                    </View>
+                                    </TouchableOpacity>
                                 )}
 
                                 {[
-                                    { label: t('MY_PROFILE'), icon: 'account-circle-outline', id: 'profile', show: isLoggedIn },
+                                    { label: t('DASHBOARD') || 'Dashboard', icon: 'view-dashboard-outline', id: 'dashboard', show: isLoggedIn },
                                     { label: t('SEARCH') || 'Search Profiles', icon: 'account-search-outline', id: 'search', show: isLoggedIn },
                                     { label: t('Viewed Profiles') || 'Viewed Profiles', icon: 'eye-outline', id: 'viewed_profiles', show: isLoggedIn },
                                     { label: t('Selected Profiles') || 'Selected Profiles', icon: 'heart-outline', id: 'selected_profiles', show: isLoggedIn },
@@ -116,7 +130,7 @@ const SidebarMenu = ({ menuVisible, setMenuVisible, isLoggedIn, onLogout, t }) =
                                                 setMenuVisible(false);
                                             } else if (item.id === 'dashboard' && navigation) {
                                                 setMenuVisible(false);
-                                                navigation.navigate('Dashboard');
+                                                navigation.navigate('Main', { initialTab: 'HOME' });
                                             } else if (item.id === 'search' && navigation) {
                                                 setMenuVisible(false);
                                                 navigation.navigate('Search');

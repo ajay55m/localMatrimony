@@ -13,19 +13,20 @@ import {
     getLabel, EDUCATION_MAP, OCCUPATION_MAP,
     RELIGION_MAP, CASTE_MAP, LOCATION_MAP,
 } from '../../utils/dataMappings';
-import { getProfile, selectProfile, getSelectedProfiles } from '../../services/profileService';
-import SidebarMenu from '../../components/SidebarMenu';
+import { getProfile, getSelectedProfiles, submitSelectedProfile as selectProfile } from '../../services/profileService';
 import PageHeader from '../../components/PageHeader';
+import SidebarMenu from '../../components/SidebarMenu';
+import LoginModal from '../../components/LoginModal';
+import { TRANSLATIONS } from '../../constants/translations';
 import { KEYS } from '../../utils/session';
-
-const CORRECT_IMG_BASE = 'https://nadarmahamai.com/adminpanel/matrimony/userphoto/';
-const WRONG_IMG_BASE = 'https://nadarmahamai.com/uploads/';
+import { clearSession } from '../../utils/session';
+import { BASE_IMAGE_URL, WRONG_IMAGE_URL } from '../../config/apiConfig';
 
 const toFullUrl = (raw) => {
     if (!raw) return null;
-    if (raw.startsWith(WRONG_IMG_BASE)) return CORRECT_IMG_BASE + raw.slice(WRONG_IMG_BASE.length);
+    if (raw.startsWith(WRONG_IMAGE_URL)) return BASE_IMAGE_URL + raw.slice(WRONG_IMAGE_URL.length);
     if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
-    return `${CORRECT_IMG_BASE}${raw}`;
+    return `${BASE_IMAGE_URL}${raw}`;
 };
 
 const extractPhotos = (data) => {
@@ -141,6 +142,7 @@ const ProfileDetails = () => {
     const [userGender, setUserGender] = useState('Male');
     const [isSelecting, setIsSelecting] = useState(false);
     const [selectedCount, setSelectedCount] = useState(null);
+    const [loginVisible, setLoginVisible] = useState(false);
 
     // Photo viewer
     const [photoVisible, setPhotoVisible] = useState(false);
@@ -406,7 +408,65 @@ const ProfileDetails = () => {
         setSelectedIndex(prev); setSelectedPhoto(profilePhotos[prev]);
     };
 
-    // ── Logout ─────────────────────────────────────────────────────────────
+    // ── Resolve the best available first photo for tap-to-view ───────────────
+    const getFirstPhoto = () => {
+        if (profilePhotos.length > 0) return profilePhotos[0];
+        const ud = profileData; // fallback to current view if needed
+        if (ud?.photos?.length > 0) return ud.photos[0];
+        if (ud?.profile_image) return { url: toFullUrl(ud.profile_image), slot: 0 };
+        if (ud?.user_photo) return { url: toFullUrl(ud.user_photo), filename: ud.user_photo, slot: 0 };
+        if (ud?.photo_data1) return { url: toFullUrl(ud.photo_data1), filename: ud.photo_data1, slot: 1 };
+        return null;
+    };
+
+    // ── Fetch latest photos from backend then open viewer ────────────────────
+    const fetchAndOpenPhotos = async () => {
+        try {
+            const { myId } = await resolveMyId();
+            if (!myId) {
+                const first = getFirstPhoto();
+                if (first) openPhoto(first, 0);
+                else Alert.alert('Check Session', 'Please login again.');
+                return;
+            }
+
+            const profileResult = await getProfile(myId);
+            if (profileResult?.status && profileResult.data) {
+                const freshPhotos = extractPhotos(profileResult.data);
+                const freshPrimary = extractPrimaryPhoto(profileResult.data);
+
+                if (freshPhotos.length > 0) {
+                    setProfilePhotos(freshPhotos);
+                    openPhoto(freshPhotos[0], 0);
+                } else if (freshPrimary) {
+                    openPhoto({ url: freshPrimary, slot: 0 }, 0);
+                } else {
+                    const first = getFirstPhoto();
+                    if (first) openPhoto(first, 0);
+                    else Alert.alert('No Profile Picture', 'You have not uploaded a picture yet.');
+                }
+            } else {
+                const first = getFirstPhoto();
+                if (first) openPhoto(first, 0);
+                else Alert.alert('Network Issue', 'Could not fetch your latest photo.');
+            }
+        } catch (e) {
+            console.error('fetchAndOpenPhotos error:', e);
+            const first = getFirstPhoto();
+            if (first) openPhoto(first, 0);
+        }
+    };
+
+    const getAvatarSource = () => {
+        // This is for the LOGGED IN USER in the header
+        // Since ProfileDetails is about a DIFFERENT profile, we should try to
+        // get the logged in user's data from storage for the header avatar.
+        // For now, if we don't have a separate user profile image, we use default.
+        return isUserFemale
+            ? require('../../assets/images/avatar_female.jpg')
+            : require('../../assets/images/avatar_male.jpg');
+    };
+
     const handleLogout = async () => {
         try {
             await clearSession();
@@ -420,7 +480,10 @@ const ProfileDetails = () => {
         try {
             setIsSelecting(true);
             const { myId, userData } = await resolveMyId();
-            if (!myId) { Alert.alert('Error', 'User session not found.'); return; }
+            if (!myId) {
+                setLoginVisible(true);
+                return;
+            }
 
             const targetId = String(numericProfileId || profileId);
             const apiResult = await selectProfile(myId, targetId);
@@ -519,7 +582,16 @@ const ProfileDetails = () => {
         ? (extractPrimaryPhoto(data) || toFullUrl(data.user_photo) || toFullUrl(data.photo_data1))
         : null;
 
-    const isFemale = data.gender?.toLowerCase() === 'female' || data.gender === 'பெண்';
+    const isFemale = data.gender?.toLowerCase() === 'female' || data.gender === '\u0BAA\u0BC6\u0BA3\u0BCD' || data.gender === 'girl' || data.gender === 'பெண்';
+    const handleFooterNavigation = (tab) => {
+        if (tab === 'HOME') navigation.navigate('Main', { initialTab: 'HOME' });
+        else if (tab === 'CONTACT') navigation.navigate('Contact');
+        else if (tab === 'SEARCH') navigation.navigate('Search');
+        else if (tab === 'PROFILE') navigation.navigate('Profiles');
+    };
+
+    const t = (key) => TRANSLATIONS['ta'][key] || key;
+
     const isUserFemale = userGender?.toLowerCase() === 'female' || userGender === 'பெண்';
     const defaultAvatarSource = isFemale
         ? require('../../assets/images/avatar_female.jpg')
@@ -575,21 +647,12 @@ const ProfileDetails = () => {
                 title="Profile Details"
                 onBack={() => navigation.goBack()}
                 icon="account-details"
+                onMenuPress={() => setMenuVisible(true)}
                 rightComponent={
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                         {(isLoading || isCheckingSelect) && <ActivityIndicator color="#ef0d8d" size="small" />}
-                        {isLoggedIn && (
-                            <TouchableOpacity onPress={() => navigation.navigate('Main', { initialTab: 'HOME' })}>
-                                <Image
-                                    source={isUserFemale
-                                        ? require('../../assets/images/avatar_female.jpg')
-                                        : require('../../assets/images/avatar_male.jpg')}
-                                    style={styles.avatarSmall}
-                                />
-                            </TouchableOpacity>
-                        )}
                         <TouchableOpacity onPress={() => setMenuVisible(true)}>
-                            <Icon name="menu" size={24} color="#ad0761" />
+                            <Icon name="menu" size={28} color="#ad0761" />
                         </TouchableOpacity>
                     </View>
                 }
@@ -897,7 +960,7 @@ const ProfileDetails = () => {
                 setMenuVisible={setMenuVisible}
                 isLoggedIn={isLoggedIn}
                 onLogout={handleLogout}
-                t={(key) => key}
+                t={t}
                 navigation={navigation}
             />
 
@@ -957,6 +1020,17 @@ const ProfileDetails = () => {
                     )}
                 </View>
             </Modal>
+
+            <LoginModal
+                visible={loginVisible}
+                onClose={() => setLoginVisible(false)}
+                onLoginSuccess={() => {
+                    setLoginVisible(false);
+                    setIsLoggedIn(true);
+                    checkIfSelected();
+                }}
+                t={t}
+            />
         </View>
     );
 };
@@ -993,6 +1067,7 @@ const styles = StyleSheet.create({
     errorText: { fontSize: 16, color: '#999' },
     errorLink: { color: '#ef0d8d', fontWeight: '700', fontSize: 15 },
     avatarSmall: { width: 34, height: 34, borderRadius: 17, borderWidth: 2, borderColor: '#ef0d8d' },
+    uploadBadgeSmall: { position: 'absolute', bottom: -2, right: -2, backgroundColor: '#ad0761', width: 14, height: 14, borderRadius: 7, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#FFF' },
 
     summaryCard: { backgroundColor: '#FFF', borderRadius: 18, marginBottom: 18, marginTop: 6, overflow: 'hidden', elevation: 5, shadowColor: '#ef0d8d', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.12, shadowRadius: 6 },
     cardTopStripe: { height: 4, width: '100%' },

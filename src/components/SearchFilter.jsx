@@ -8,15 +8,21 @@ import {
     ScrollView,
     Modal,
     Dimensions,
+    Alert,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { scale, moderateScale } from '../utils/responsive';
-import { searchProfiles, getDropdowns } from '../services/profileService';
 import { ActivityIndicator } from 'react-native';
 import { MARITAL_STATUSES } from '../constants/maritalStatuses';
+import { DIRECTIONS } from '../constants/directions';
+import { ENDPOINTS } from '../config/apiConfig';
 
 const { height } = Dimensions.get('window');
+
+const SEARCH_API_URL = ENDPOINTS.SEARCH_PROFILES;
+const DROPDOWN_API_URL = ENDPOINTS.GET_DROPDOWNS;
+const BOT_COOKIE = 'humans_21909=1';
 
 const COLORS = {
     primary: '#ef5c0dff',
@@ -34,9 +40,10 @@ const COLORS = {
 // Helper: returns true when a value is a real selection
 // ─────────────────────────────────────────────────────────────
 const isValidSelection = (value) =>
-    value &&
-    value.trim() !== '' &&
-    !value.startsWith('SELECT_');
+    value !== undefined &&
+    value !== null &&
+    String(value).trim() !== '' &&
+    !String(value).startsWith('SELECT_');
 
 // ─────────────────────────────────────────────────────────────
 // Helper: validate & normalise age range
@@ -48,14 +55,77 @@ const normaliseAgeRange = (from, to) => {
     return { ageFrom: String(f), ageTo: String(t) };
 };
 
+// ─────────────────────────────────────────────────────────────
+// Helper: normalise any API dropdown shape into {value, label}
+// If API returns plain Tamil strings → value = label = string
+// If API returns {id, name} objects → value = id, label = name
+// ─────────────────────────────────────────────────────────────
+const mapDropdownItems = (arr) => {
+    if (!Array.isArray(arr)) return [];
+    return arr.map(item => {
+        if (typeof item === 'string') return { value: item, label: item };
+        const value = item.value ?? item.name ?? item.id ?? String(item);
+        const label = item.label ?? item.name ?? item.value ?? String(item);
+        return { value: String(value), label: String(label) };
+    });
+};
+
+// ─────────────────────────────────────────────────────────────
+// Core search fetch — uses FormData to guarantee Tamil text
+// is sent correctly (same pattern as working fetchDropdowns)
+// ─────────────────────────────────────────────────────────────
+const doSearchFetch = async (params) => {
+    try {
+        const body = new FormData();
+        Object.entries(params).forEach(([k, v]) => {
+            if (v !== undefined && v !== null && String(v).trim() !== '') {
+                body.append(k, String(v));
+            }
+        });
+
+        const response = await fetch(SEARCH_API_URL, {
+            method: 'POST',
+            headers: { Cookie: BOT_COOKIE },
+            body,
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        // Decode as UTF-8 to preserve Tamil characters
+        const buffer = await response.arrayBuffer();
+        let text;
+        if (typeof TextDecoder !== 'undefined') {
+            text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+        } else {
+            // Manual fallback
+            const bytes = new Uint8Array(buffer);
+            let r = '';
+            let i = 0;
+            while (i < bytes.length) {
+                const c = bytes[i++];
+                if (c < 128) { r += String.fromCharCode(c); }
+                else if (c >= 192 && c < 224) { r += String.fromCharCode(((c & 31) << 6) | (bytes[i++] & 63)); }
+                else if (c >= 224 && c < 240) { r += String.fromCharCode(((c & 15) << 12) | ((bytes[i++] & 63) << 6) | (bytes[i++] & 63)); }
+                else { i += 3; }
+            }
+            text = r;
+        }
+
+        return JSON.parse(text);
+    } catch (e) {
+        console.error('doSearchFetch error:', e);
+        return { status: false, message: String(e), data: [] };
+    }
+};
+
 // =============================================================================
-// DropdownSheet — self-contained dropdown with its own open state
-// ✅ FIX: Modal lives inside this component so parent re-renders cannot close it
+// DropdownSheet — self-contained with its own Modal open state
 // =============================================================================
 const DropdownSheet = ({ title, value, items = [], labels = {}, onSelect, loading = false, style }) => {
     const [open, setOpen] = useState(false);
 
-    const displayLabel = value && !value.startsWith('SELECT_')
+    // Show label from map if found, otherwise show value as-is (handles Tamil default text)
+    const displayLabel = isValidSelection(value)
         ? (labels[value] || value)
         : '-- தேர்வு --';
 
@@ -66,12 +136,9 @@ const DropdownSheet = ({ title, value, items = [], labels = {}, onSelect, loadin
                 onPress={() => !loading && setOpen(true)}
                 activeOpacity={0.75}
             >
-                {loading
-                    ? <ActivityIndicator size="small" color={COLORS.primary} style={{ marginRight: 6 }} />
-                    : null
-                }
+                {loading && <ActivityIndicator size="small" color={COLORS.primary} style={{ marginRight: 6 }} />}
                 <Text
-                    style={[styles.pickerText, (!value || value.startsWith('SELECT_')) && { color: '#9CA3AF' }]}
+                    style={[styles.pickerText, !isValidSelection(value) && { color: '#9CA3AF' }]}
                     numberOfLines={1}
                 >
                     {loading ? 'ஏற்றுகிறது...' : displayLabel}
@@ -139,58 +206,63 @@ const SearchFilter = ({ onSearch, t, isLoggedIn = false }) => {
     const [searchMode, setSearchMode] = useState('normal');
     const [loading, setLoading] = useState(false);
 
-    // ── API-powered dropdown state ────────────────────────────────────────────
+    // ── Dropdown data from API ────────────────────────────────────────────────
     const [dropdowns, setDropdowns] = useState({
         castes: [], complexions: [], qualifications: [],
         occupations: [], rasis: [], religions: [], stars: [], districts: [],
     });
     const [ddLoading, setDdLoading] = useState(false);
 
-    useEffect(() => {
-        fetchDropdowns();
-    }, []);
+    useEffect(() => { fetchDropdowns(); }, []);
 
     const fetchDropdowns = async () => {
         setDdLoading(true);
         try {
-            const res = await getDropdowns();
+            const body = new FormData();
+            body.append('action', 'get_dropdowns');
+            const response = await fetch(DROPDOWN_API_URL, { method: 'POST', body });
+            const res = await response.json();
+
+            console.log('📋 Castes sample:', JSON.stringify((res?.data?.castes || []).slice(0, 3)));
+            console.log('📋 Religions sample:', JSON.stringify((res?.data?.religions || []).slice(0, 3)));
+
             if (res.status && res.data) {
                 setDropdowns({
-                    castes: res.data.castes || [],
-                    complexions: res.data.complexions || [],
-                    qualifications: res.data.qualifications || [],
-                    occupations: res.data.occupations || [],
-                    rasis: res.data.rasis || [],
-                    religions: res.data.religions || [],
-                    stars: res.data.stars || [],
-                    districts: res.data.districts || [],
+                    castes: mapDropdownItems(res.data.castes),
+                    complexions: mapDropdownItems(res.data.complexions),
+                    qualifications: mapDropdownItems(res.data.qualifications),
+                    occupations: mapDropdownItems(res.data.occupations),
+                    rasis: mapDropdownItems(res.data.rasis),
+                    religions: mapDropdownItems(res.data.religions),
+                    stars: mapDropdownItems(res.data.stars),
+                    districts: mapDropdownItems(res.data.districts),
                 });
             }
         } catch (e) {
-            console.error('fetchDropdowns error in SearchFilter:', e);
+            console.error('fetchDropdowns error:', e);
         } finally {
             setDdLoading(false);
         }
     };
 
-    // ── Normal Filters ──────────────────────────────────────────
+    // ── Normal Filters — caste defaults to நாடார் (matches DB stored text) ──
     const [filters, setFilters] = useState({
-        lookingFor: '', // Changed from 'Female' to empty for broader search
+        lookingFor: '',
         ageFrom: '18',
-        ageTo: '30', // Set back to 30 as requested
+        ageTo: '30',
         religion: '',
-        caste: '',
+        caste: '1',
     });
 
-    // ── Advanced Filters ────────────────────────────────────────
+    // ── Advanced Filters ──────────────────────────────────────────────────────
     const [advFilters, setAdvFilters] = useState({
         searchId: '',
-        seeking: '', // Changed from 'Female' to empty for broader search
+        seeking: '',
         ageFrom: '18',
-        ageTo: '30', // Increased age range for more results
+        ageTo: '30',
         district: '',
         religion: '',
-        caste: '',
+        caste: '1',
         nativeDirection: '',
         qualification: '',
         work: '',
@@ -204,85 +276,8 @@ const SearchFilter = ({ onSearch, t, isLoggedIn = false }) => {
     const updateAdv = (key, val) => setAdvFilters(prev => ({ ...prev, [key]: val }));
     const updateNormal = (key, val) => setFilters(prev => ({ ...prev, [key]: val }));
 
-    const handleAgeToSelect = (val) => {
-        const { ageFrom, ageTo } = normaliseAgeRange(advFilters.ageFrom, val);
-        setAdvFilters(prev => ({ ...prev, ageFrom, ageTo }));
-    };
-    const handleAgeFromSelect = (val) => {
-        const { ageFrom, ageTo } = normaliseAgeRange(val, advFilters.ageTo);
-        setAdvFilters(prev => ({ ...prev, ageFrom, ageTo }));
-    };
-
-    // ─────────────────────────────────────────────────────────────
-    // Build API payload & call backend
-    // ─────────────────────────────────────────────────────────────
-    const handleSearch = async () => {
-        setLoading(true);
-        try {
-            const apiPayload = { limit: 50 };
-
-            if (searchMode === 'normal') {
-                // Only send gender if it's selected (not empty)
-                if (isValidSelection(filters.lookingFor)) {
-                    apiPayload.gender = filters.lookingFor;
-                }
-                const { ageFrom, ageTo } = normaliseAgeRange(filters.ageFrom, filters.ageTo);
-                apiPayload.age_from = ageFrom;
-                apiPayload.age_to = ageTo;
-                if (isValidSelection(filters.religion)) apiPayload.religion = filters.religion;
-                if (isValidSelection(filters.caste)) apiPayload.caste = filters.caste;
-            } else {
-                if (advFilters.searchId.trim()) apiPayload.profile_id = advFilters.searchId.trim();
-                // Only send gender if it's selected (not empty)
-                if (isValidSelection(advFilters.seeking)) {
-                    apiPayload.gender = advFilters.seeking;
-                }
-                const { ageFrom, ageTo } = normaliseAgeRange(advFilters.ageFrom, advFilters.ageTo);
-                apiPayload.age_from = ageFrom;
-                apiPayload.age_to = ageTo;
-                if (isValidSelection(advFilters.district)) apiPayload.district = advFilters.district;
-                if (isValidSelection(advFilters.religion)) apiPayload.religion = advFilters.religion;
-                if (isValidSelection(advFilters.caste)) apiPayload.caste = advFilters.caste;
-                if (isValidSelection(advFilters.nativeDirection)) apiPayload.native_direction = advFilters.nativeDirection;
-                if (isValidSelection(advFilters.qualification)) apiPayload.education = advFilters.qualification;
-                if (isValidSelection(advFilters.work)) apiPayload.occupation = advFilters.work;
-                if (isValidSelection(advFilters.raasi)) apiPayload.raasi = advFilters.raasi;
-                if (isValidSelection(advFilters.star)) apiPayload.star = advFilters.star;
-                if (isValidSelection(advFilters.color)) apiPayload.complexion = advFilters.color;
-                if (isValidSelection(advFilters.jewel)) apiPayload.jewel = advFilters.jewel;
-                if (isValidSelection(advFilters.maritalStatus)) apiPayload.marital_status = advFilters.maritalStatus;
-            }
-
-            console.log('Final API Payload:', apiPayload);
-            const result = await searchProfiles(apiPayload);
-
-            try {
-                if (result.status && Array.isArray(result.data)) {
-                    result.data.sort((a, b) => (parseInt(a.age, 10) || 0) - (parseInt(b.age, 10) || 0));
-                }
-            } catch (sortError) {
-                console.warn('Sorting failed:', sortError);
-            }
-
-            if (onSearch) {
-                onSearch({
-                    mode: searchMode,
-                    filters: searchMode === 'normal' ? filters : advFilters,
-                    results: result.status ? result.data : [],
-                    count: result.count || 0,
-                });
-            }
-        } catch (error) {
-            console.log('Search Error:', error);
-            if (onSearch) onSearch({ mode: searchMode, results: [], count: 0, error: true });
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // ── Option lists ────────────────────────────────────────────
+    // ── Option lists ──────────────────────────────────────────────────────────
     const ageOptions = Array.from({ length: 73 }, (_, i) => String(i + 18));
-
     const genderOptions = ['', 'Female', 'Male'];
     const genderLabels = { '': 'All', Female: t('WOMAN'), Male: t('MAN') };
 
@@ -310,8 +305,8 @@ const SearchFilter = ({ onSearch, t, isLoggedIn = false }) => {
     const colorOptions = dropdowns.complexions.map(c => c.value);
     const colorLabels = dropdowns.complexions.reduce((a, c) => ({ ...a, [c.value]: c.label }), {});
 
-    const directionOptions = ['North', 'South', 'East', 'West'];
-    const directionLabels = { North: 'வடக்கு', South: 'தெற்கு', East: 'கிழக்கு', West: 'மேற்கு' };
+    const directionOptions = DIRECTIONS.map(d => d.value);
+    const directionLabels = DIRECTIONS.reduce((a, d) => ({ ...a, [d.value]: d.label }), {});
 
     const maritalOptions = MARITAL_STATUSES.map(m => m.value);
     const maritalLabels = MARITAL_STATUSES.reduce((a, m) => ({ ...a, [m.value]: m.label }), {});
@@ -321,6 +316,103 @@ const SearchFilter = ({ onSearch, t, isLoggedIn = false }) => {
         'Below 50 Powns', 'Below 60 powns', 'Below 75 Powns', 'Below 80 powns',
         'Below 100 Powns', 'below 125 Powns', 'Below 150 Powns', 'Below 200 Pown', 'Above 200 Powns',
     ];
+
+    const handleAgeToSelect = (val) => { const r = normaliseAgeRange(advFilters.ageFrom, val); setAdvFilters(p => ({ ...p, ...r })); };
+    const handleAgeFromSelect = (val) => { const r = normaliseAgeRange(val, advFilters.ageTo); setAdvFilters(p => ({ ...p, ...r })); };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Helper: translate specific field values to match DB stored text (LIKE queries)
+    // ─────────────────────────────────────────────────────────────────────────
+    const resolveToText = (value, labelsMap) => {
+        if (!isValidSelection(value)) return null;
+        return labelsMap[value] || value;
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // handleSearch — builds payload and calls search API via FormData
+    // ─────────────────────────────────────────────────────────────────────────
+    const handleSearch = async () => {
+        setLoading(true);
+        try {
+            const params = { limit: 50 };
+
+            if (searchMode === 'normal') {
+                const gl = resolveToText(filters.lookingFor, genderLabels);
+                if (gl) params.gender = gl;
+                
+                const { ageFrom, ageTo } = normaliseAgeRange(filters.ageFrom, filters.ageTo);
+                params.age_from = ageFrom;
+                params.age_to = ageTo;
+
+                const rl = resolveToText(filters.religion, religionLabels);
+                if (rl) params.religion = rl;
+
+                if (isValidSelection(filters.caste)) {
+                    const label = casteLabels[filters.caste] || filters.caste;
+                    params.caste = (filters.caste === '1' || label === 'Nadar' || label === 'நாடார்') ? 'நாடார்' : label;
+                }
+
+            } else {
+                if (advFilters.searchId.trim()) params.profile_id = advFilters.searchId.trim();
+                
+                const gl = resolveToText(advFilters.seeking, genderLabels);
+                if (gl) params.gender = gl;
+                
+                const { ageFrom, ageTo } = normaliseAgeRange(advFilters.ageFrom, advFilters.ageTo);
+                params.age_from = ageFrom;
+                params.age_to = ageTo;
+
+                // ── ID-based values (Sends the ID/Value) ─────────────────────────
+                if (isValidSelection(advFilters.religion)) params.religion = advFilters.religion;
+                if (isValidSelection(advFilters.district)) params.district = advFilters.district;
+                if (isValidSelection(advFilters.qualification)) params.education = advFilters.qualification;
+                if (isValidSelection(advFilters.work)) params.occupation = advFilters.work;
+                if (isValidSelection(advFilters.raasi)) params.raasi = advFilters.raasi;
+                if (isValidSelection(advFilters.star)) params.star = advFilters.star;
+                if (isValidSelection(advFilters.color)) params.complexion = advFilters.color;
+                if (isValidSelection(advFilters.nativeDirection)) params.native_direction = advFilters.nativeDirection;
+
+                // ── Text-based labels (Matches LIKE query) ───────────────────────
+                if (isValidSelection(advFilters.caste)) {
+                    const label = casteLabels[advFilters.caste] || advFilters.caste;
+                    params.caste = (advFilters.caste === '1' || label === 'Nadar' || label === 'நாடார்') ? 'நாடார்' : label;
+                }
+                
+                const rawMarital = resolveToText(advFilters.maritalStatus, maritalLabels);
+                if (rawMarital) {
+                    params.marital_status = rawMarital.split(' (')[0].trim();
+                }
+                
+                if (isValidSelection(advFilters.jewel)) params.jewel = advFilters.jewel;
+            }
+
+            const result = await doSearchFetch(params);
+
+            let profiles = Array.isArray(result.data) ? result.data : [];
+            
+            // Limit to top 50 as requested
+            if (profiles.length > 50) {
+                profiles = profiles.slice(0, 50);
+            }
+
+            // Sort by age
+            profiles.sort((a, b) => (parseInt(a.age, 10) || 0) - (parseInt(b.age, 10) || 0));
+
+            if (onSearch) {
+                onSearch({
+                    mode: searchMode,
+                    filters: searchMode === 'normal' ? filters : advFilters,
+                    results: profiles,
+                    count: Math.min(profiles.length, 50),
+                });
+            }
+        } catch (error) {
+            console.error('Search Error:', error);
+            if (onSearch) onSearch({ mode: searchMode, results: [], count: 0, error: true });
+        } finally {
+            setLoading(false);
+        }
+    };
 
     return (
         <View style={styles.searchWrapper}>
@@ -347,7 +439,6 @@ const SearchFilter = ({ onSearch, t, isLoggedIn = false }) => {
             {isLoggedIn && <View style={{ height: 1, backgroundColor: '#DDD', marginBottom: 15 }} />}
 
             <View>
-                {/* Title — advanced only */}
                 {searchMode === 'advanced' && (
                     <View style={styles.searchTitleRow}>
                         <Text style={styles.searchWidgetTitle}>{t('ADV_SEARCH_TITLE')}</Text>
@@ -360,7 +451,6 @@ const SearchFilter = ({ onSearch, t, isLoggedIn = false }) => {
                     <View>
                         <Text style={styles.sectionHeaderTitle}>தேடல் விவரங்கள்</Text>
                         <View style={styles.formGrid}>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('SEEKING')}</Text>
                                 <DropdownSheet
@@ -371,33 +461,24 @@ const SearchFilter = ({ onSearch, t, isLoggedIn = false }) => {
                                     onSelect={v => updateNormal('lookingFor', v)}
                                 />
                             </View>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('AGE')} (இருந்து)</Text>
                                 <DropdownSheet
                                     title={`${t('AGE')} (இருந்து)`}
                                     value={filters.ageFrom}
                                     items={ageOptions}
-                                    onSelect={v => {
-                                        const { ageFrom, ageTo } = normaliseAgeRange(v, filters.ageTo);
-                                        setFilters(prev => ({ ...prev, ageFrom, ageTo }));
-                                    }}
+                                    onSelect={v => { const r = normaliseAgeRange(v, filters.ageTo); setFilters(p => ({ ...p, ...r })); }}
                                 />
                             </View>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('AGE')} (வரை)</Text>
                                 <DropdownSheet
                                     title={`${t('AGE')} (வரை)`}
                                     value={filters.ageTo}
                                     items={ageOptions}
-                                    onSelect={v => {
-                                        const { ageFrom, ageTo } = normaliseAgeRange(filters.ageFrom, v);
-                                        setFilters(prev => ({ ...prev, ageFrom, ageTo }));
-                                    }}
+                                    onSelect={v => { const r = normaliseAgeRange(filters.ageFrom, v); setFilters(p => ({ ...p, ...r })); }}
                                 />
                             </View>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('RELIGION')}</Text>
                                 <DropdownSheet
@@ -409,7 +490,6 @@ const SearchFilter = ({ onSearch, t, isLoggedIn = false }) => {
                                     onSelect={v => updateNormal('religion', v)}
                                 />
                             </View>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('CASTE')}</Text>
                                 <DropdownSheet
@@ -421,7 +501,6 @@ const SearchFilter = ({ onSearch, t, isLoggedIn = false }) => {
                                     onSelect={v => updateNormal('caste', v)}
                                 />
                             </View>
-
                         </View>
                     </View>
                 )}
@@ -430,7 +509,6 @@ const SearchFilter = ({ onSearch, t, isLoggedIn = false }) => {
                 {searchMode === 'advanced' && (
                     <View>
                         <Text style={styles.sectionHeaderTitle}>General</Text>
-
                         <View style={styles.fullWidthInputGroup}>
                             <Text style={styles.label}>{t('SEARCH_BY_ID')}</Text>
                             <TextInput
@@ -440,113 +518,74 @@ const SearchFilter = ({ onSearch, t, isLoggedIn = false }) => {
                                 onChangeText={text => updateAdv('searchId', text)}
                             />
                         </View>
-
                         <View style={styles.fullWidthInputGroup}>
                             <Text style={styles.label}>{t('SEEKING')} <Text style={{ color: 'red' }}>*</Text></Text>
-                            <DropdownSheet
-                                title={t('SEEKING')}
-                                value={advFilters.seeking}
-                                items={genderOptions}
-                                labels={genderLabels}
-                                onSelect={v => updateAdv('seeking', v)}
-                            />
+                            <DropdownSheet title={t('SEEKING')} value={advFilters.seeking} items={genderOptions} labels={genderLabels} onSelect={v => updateAdv('seeking', v)} />
                         </View>
-
                         <View style={styles.fullWidthInputGroup}>
                             <Text style={styles.label}>{t('AGE')} <Text style={{ color: 'red' }}>*</Text></Text>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                                <DropdownSheet
-                                    title={`${t('AGE')} (From)`}
-                                    value={advFilters.ageFrom}
-                                    items={ageOptions}
-                                    onSelect={handleAgeFromSelect}
-                                    style={{ flex: 1 }}
-                                />
+                                <DropdownSheet title={`${t('AGE')} (From)`} value={advFilters.ageFrom} items={ageOptions} onSelect={handleAgeFromSelect} style={{ flex: 1 }} />
                                 <Text>-</Text>
-                                <DropdownSheet
-                                    title={`${t('AGE')} (To)`}
-                                    value={advFilters.ageTo}
-                                    items={ageOptions}
-                                    onSelect={handleAgeToSelect}
-                                    style={{ flex: 1 }}
-                                />
+                                <DropdownSheet title={`${t('AGE')} (To)`} value={advFilters.ageTo} items={ageOptions} onSelect={handleAgeToSelect} style={{ flex: 1 }} />
                                 <Text style={{ color: '#666' }}>years</Text>
                             </View>
                         </View>
-
                         <View style={styles.formGrid}>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('MARITAL_STATUS')}</Text>
                                 <DropdownSheet title={t('MARITAL_STATUS')} value={advFilters.maritalStatus} items={maritalOptions} labels={maritalLabels} onSelect={v => updateAdv('maritalStatus', v)} />
                             </View>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('DISTRICT')}</Text>
                                 <DropdownSheet title={t('DISTRICT')} value={advFilters.district} items={districtOptions} labels={districtLabels} loading={ddLoading} onSelect={v => updateAdv('district', v)} />
                             </View>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('RELIGION')}</Text>
                                 <DropdownSheet title={t('RELIGION')} value={advFilters.religion} items={religionOptions} labels={religionLabels} loading={ddLoading} onSelect={v => updateAdv('religion', v)} />
                             </View>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('CASTE')}</Text>
                                 <DropdownSheet title={t('CASTE')} value={advFilters.caste} items={casteOptions} labels={casteLabels} loading={ddLoading} onSelect={v => updateAdv('caste', v)} />
                             </View>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('NATIVE_DIRECTION')}</Text>
                                 <DropdownSheet title={t('NATIVE_DIRECTION')} value={advFilters.nativeDirection} items={directionOptions} labels={directionLabels} onSelect={v => updateAdv('nativeDirection', v)} />
                             </View>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('QUALIFICATION')}</Text>
                                 <DropdownSheet title={t('QUALIFICATION')} value={advFilters.qualification} items={qualOptions} labels={qualLabels} loading={ddLoading} onSelect={v => updateAdv('qualification', v)} />
                             </View>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('WORK')}</Text>
                                 <DropdownSheet title={t('WORK')} value={advFilters.work} items={workOptions} labels={workLabels} loading={ddLoading} onSelect={v => updateAdv('work', v)} />
                             </View>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('RAASI')}</Text>
                                 <DropdownSheet title={t('RAASI')} value={advFilters.raasi} items={rasiOptions} labels={rasiLabels} loading={ddLoading} onSelect={v => { updateAdv('raasi', v); updateAdv('star', ''); }} />
                             </View>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('STAR')}</Text>
                                 <DropdownSheet title={t('STAR')} value={advFilters.star} items={starOptions} labels={starLabels} loading={ddLoading} onSelect={v => updateAdv('star', v)} />
                             </View>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('COLOR')}</Text>
                                 <DropdownSheet title={t('COLOR')} value={advFilters.color} items={colorOptions} labels={colorLabels} loading={ddLoading} onSelect={v => updateAdv('color', v)} />
                             </View>
-
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>{t('JEWEL')}</Text>
                                 <DropdownSheet title={t('JEWEL')} value={advFilters.jewel} items={jewelOptions} onSelect={v => updateAdv('jewel', v)} />
                             </View>
-
                         </View>
                     </View>
                 )}
 
                 <TouchableOpacity style={styles.searchBtn} activeOpacity={0.8} onPress={handleSearch}>
-                    <LinearGradient
-                        colors={[COLORS.ctaGradientStart, COLORS.ctaGradientEnd]}
-                        style={styles.searchBtnGradient}
-                    >
-                        {loading ? (
-                            <ActivityIndicator color={COLORS.white} size="small" />
-                        ) : (
-                            <Text style={styles.searchBtnText}>
-                                {searchMode === 'normal' ? t('SEARCH_BTN') : t('SUBMIT')}
-                            </Text>
-                        )}
+                    <LinearGradient colors={[COLORS.ctaGradientStart, COLORS.ctaGradientEnd]} style={styles.searchBtnGradient}>
+                        {loading
+                            ? <ActivityIndicator color={COLORS.white} size="small" />
+                            : <Text style={styles.searchBtnText}>{searchMode === 'normal' ? t('SEARCH_BTN') : t('SUBMIT')}</Text>
+                        }
                     </LinearGradient>
                 </TouchableOpacity>
             </View>
@@ -555,7 +594,7 @@ const SearchFilter = ({ onSearch, t, isLoggedIn = false }) => {
 };
 
 // =============================================================================
-// STYLES — identical to original
+// STYLES — unchanged from original
 // =============================================================================
 const styles = StyleSheet.create({
     searchWrapper: {
@@ -570,119 +609,26 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 2 },
         shadowRadius: 4,
     },
-    topNavBar: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'flex-end',
-        marginBottom: 0,
-    },
-    navLeft: {
-        flexDirection: 'row',
-    },
-    navTab: {
-        backgroundColor: '#EAEAEA',
-        paddingVertical: scale(8),
-        paddingHorizontal: scale(15),
-        marginRight: scale(5),
-        borderTopLeftRadius: scale(5),
-        borderTopRightRadius: scale(5),
-    },
-    navTabActive: {
-        backgroundColor: '#DDD',
-    },
-    navTabText: {
-        color: '#666',
-        fontSize: moderateScale(12),
-    },
-    navTabTextActive: {
-        color: '#333',
-        fontWeight: 'bold',
-    },
-    searchTitleRow: {
-        marginBottom: scale(20),
-    },
-    searchWidgetTitle: {
-        fontSize: moderateScale(20),
-        fontWeight: 'bold',
-        color: '#B71C1C',
-    },
-    searchWidgetSubtitle: {
-        fontSize: moderateScale(14),
-        color: COLORS.textMain,
-        marginTop: scale(5),
-        lineHeight: moderateScale(20),
-    },
-    formGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'space-between',
-        gap: scale(10),
-    },
-    inputGroup: {
-        minWidth: '45%',
-        flex: 1,
-        marginBottom: scale(10),
-    },
-    label: {
-        fontSize: moderateScale(14),
-        fontWeight: 'bold',
-        color: COLORS.textMain,
-        marginBottom: scale(6),
-    },
-    pickerBox: {
-        backgroundColor: COLORS.white,
-        borderRadius: scale(10),
-        padding: scale(10),
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#EFEFEF',
-        minHeight: 45,
-    },
-    pickerText: {
-        color: COLORS.textMain,
-        fontSize: moderateScale(13),
-        flex: 1,
-        marginRight: 4,
-    },
-    fullWidthInputGroup: {
-        width: '100%',
-        marginBottom: scale(12),
-    },
-    textInputBox: {
-        backgroundColor: COLORS.white,
-        borderRadius: scale(10),
-        padding: scale(12),
-        borderWidth: 1,
-        borderColor: '#EFEFEF',
-        color: '#333',
-        minHeight: 45,
-    },
-    sectionHeaderTitle: {
-        fontSize: moderateScale(18),
-        fontWeight: 'bold',
-        color: '#333',
-        marginBottom: scale(10),
-        borderBottomWidth: 1,
-        borderBottomColor: '#DDD',
-        paddingBottom: scale(5),
-        marginTop: scale(10),
-    },
-    searchBtn: {
-        marginTop: scale(20),
-        borderRadius: scale(25),
-        overflow: 'hidden',
-    },
-    searchBtnGradient: {
-        paddingVertical: scale(14),
-        alignItems: 'center',
-    },
-    searchBtnText: {
-        color: COLORS.white,
-        fontWeight: 'bold',
-        fontSize: moderateScale(16),
-    },
+    topNavBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 0 },
+    navLeft: { flexDirection: 'row' },
+    navTab: { backgroundColor: '#EAEAEA', paddingVertical: scale(8), paddingHorizontal: scale(15), marginRight: scale(5), borderTopLeftRadius: scale(5), borderTopRightRadius: scale(5) },
+    navTabActive: { backgroundColor: '#DDD' },
+    navTabText: { color: '#666', fontSize: moderateScale(12) },
+    navTabTextActive: { color: '#333', fontWeight: 'bold' },
+    searchTitleRow: { marginBottom: scale(20) },
+    searchWidgetTitle: { fontSize: moderateScale(20), fontWeight: 'bold', color: '#B71C1C' },
+    searchWidgetSubtitle: { fontSize: moderateScale(14), color: COLORS.textMain, marginTop: scale(5), lineHeight: moderateScale(20) },
+    formGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: scale(10) },
+    inputGroup: { minWidth: '45%', flex: 1, marginBottom: scale(10) },
+    label: { fontSize: moderateScale(14), fontWeight: 'bold', color: COLORS.textMain, marginBottom: scale(6) },
+    pickerBox: { backgroundColor: COLORS.white, borderRadius: scale(10), padding: scale(10), flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#EFEFEF', minHeight: 45 },
+    pickerText: { color: COLORS.textMain, fontSize: moderateScale(13), flex: 1, marginRight: 4 },
+    fullWidthInputGroup: { width: '100%', marginBottom: scale(12) },
+    textInputBox: { backgroundColor: COLORS.white, borderRadius: scale(10), padding: scale(12), borderWidth: 1, borderColor: '#EFEFEF', color: '#333', minHeight: 45 },
+    sectionHeaderTitle: { fontSize: moderateScale(18), fontWeight: 'bold', color: '#333', marginBottom: scale(10), borderBottomWidth: 1, borderBottomColor: '#DDD', paddingBottom: scale(5), marginTop: scale(10) },
+    searchBtn: { marginTop: scale(20), borderRadius: scale(25), overflow: 'hidden' },
+    searchBtnGradient: { paddingVertical: scale(14), alignItems: 'center' },
+    searchBtnText: { color: COLORS.white, fontWeight: 'bold', fontSize: moderateScale(16) },
 });
 
 export default SearchFilter;

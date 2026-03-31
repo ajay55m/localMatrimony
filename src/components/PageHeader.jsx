@@ -5,7 +5,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { scale, moderateScale } from '../utils/responsive';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const PageHeader = ({ title, onBack, rightComponent, icon, backIcon = 'arrow-left', isOffline = false }) => {
+const PageHeader = ({ title, onBack, rightComponent, icon, backIcon = 'arrow-left', isOffline = false, onMenuPress }) => {
     const insets = useSafeAreaInsets();
     return (
         <>
@@ -29,7 +29,16 @@ const PageHeader = ({ title, onBack, rightComponent, icon, backIcon = 'arrow-lef
                     </LinearGradient>
                 </View>
 
-                {rightComponent ? <View style={styles.rightPlaceholder}>{rightComponent}</View> : <View style={styles.backButtonPlaceholder} />}
+                {rightComponent ? (
+                    <View style={styles.rightPlaceholder}>{rightComponent}</View>
+                ) : (
+                    <TouchableOpacity 
+                        onPress={onMenuPress} 
+                        style={[styles.backButton, isOffline && { borderWidth: 1, borderColor: '#000000', backgroundColor: '#FFFFFF' }]}
+                    >
+                        <Icon name="menu" size={24} color={isOffline ? '#000000' : "#ad0761"} />
+                    </TouchableOpacity>
+                )}
             </View>
         </>
     );
