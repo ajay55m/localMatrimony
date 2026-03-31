@@ -1,5 +1,6 @@
 import { ENDPOINTS, BASE_IMAGE_URL, WRONG_IMAGE_URL } from '../config/apiConfig';
 import { navigate } from '../navigation/NavigationService';
+import { decodeUTF8String } from '../utils/utf8Helper';
 
 /**
  * ── Bot protection cookie ────────────────────────────────────────────────────
@@ -122,7 +123,7 @@ const normalizeProfile = (profile) => ({
     ...profile,
     id: profile.tamil_profile_id || profile.id,
     profile_id: profile.profile_id,
-    name: profile.name || profile.user_name || 'Unknown',
+    name: decodeUTF8String(profile.name || profile.user_name || profile.profile_name) || 'Unknown',
     profile_image: resolveProfileImage(profile),
     age: profile.age,
     height: profile.height || (profile.height_feet ? `${profile.height_feet}ft ${profile.height_inches}in` : ''),

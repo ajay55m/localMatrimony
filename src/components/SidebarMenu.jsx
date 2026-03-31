@@ -12,6 +12,7 @@ import {
     ImageBackground,
 } from 'react-native';
 import { getSession, KEYS } from '../utils/session';
+import { decodeUTF8String } from '../utils/utf8Helper';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { scale, moderateScale, width, height } from '../utils/responsive';
@@ -96,7 +97,7 @@ const SidebarMenu = ({ menuVisible, setMenuVisible, isLoggedIn, onLogout, t }) =
                                             style={styles.profileAvatar}
                                         />
                                         <View>
-                                            <Text style={styles.profileName}>{userData?.username || 'User'}</Text>
+                                            <Text style={styles.profileName}>{decodeUTF8String(userData?.user_name || userData?.name || userData?.username) || 'User'}</Text>
                                             <View style={styles.percentageContainer}>
                                                 <Text style={styles.percentageText}>
                                                     {t('PROFILE')} {calculateCompleteness(userData)}% {t('COMPLETE') || 'Complete'}

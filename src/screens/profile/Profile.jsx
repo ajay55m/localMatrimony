@@ -369,7 +369,7 @@ const ProfileScreen = () => {
                         <View style={styles.cardHeader}>
                             <View style={styles.profileBadge}>
                                 <Icon name="identifier" size={scale(13)} color="#1565C0" />
-                                <Text style={styles.profileIdText}>{cardProfileId}</Text>
+                                <Text style={styles.profileIdText} numberOfLines={1}>{cardProfileId} - {profile.name}</Text>
                             </View>
                             <View style={[styles.statusBadge, isSelected && styles.statusBadgeSelected]}>
                                 <View style={[styles.statusDot, { backgroundColor: isSelected ? '#0D9488' : '#F57C00' }]} />
@@ -757,6 +757,7 @@ const styles = StyleSheet.create({
     },
     profileIdText: {
         fontSize: moderateScale(12), color: '#1565C0', fontWeight: '700', letterSpacing: 0.3,
+        maxWidth: scale(160),
     },
     statusBadge: {
         flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF3E0',

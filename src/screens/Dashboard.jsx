@@ -519,8 +519,9 @@ const Dashboard = ({ t }) => {
 
     const displayName = () => {
         const name = userData?.user_name || userData?.name || userData?.username || 'User';
-        if (name && name.includes('?')) logUTF8String('Problematic name', name);
-        return name;
+        const decodedName = decodeUTF8String(name) || 'User';
+        if (decodedName && decodedName.includes('?')) logUTF8String('Problematic name', decodedName);
+        return decodedName;
     };
 
     // ── Viewed count display ──────────────────────────────────────────────────
